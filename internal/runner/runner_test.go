@@ -149,6 +149,17 @@ func TestDumpJobSuccess(t *testing.T) {
 	}
 }
 
+func TestStartIsIdempotent(t *testing.T) {
+	run, st, _ := setup(t, &fakeEngine{name: "postgres"})
+	_, _, jobID := seedDumpJob(t, st)
+	run.Start(jobID)
+	run.Start(jobID)
+	j := waitTerminal(t, st, jobID)
+	if j.Status != "success" {
+		t.Fatalf("status = %s, err = %s", j.Status, j.Err)
+	}
+}
+
 func TestDumpJobFailure(t *testing.T) {
 	run, st, _ := setup(t, &fakeEngine{name: "postgres", dumpErr: errors.New("boom")})
 	_, dumpID, jobID := seedDumpJob(t, st)

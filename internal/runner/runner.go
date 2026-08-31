@@ -22,6 +22,7 @@ type Runner struct {
 	logsDir  string
 	mu       sync.Mutex
 	cancels  map[int64]context.CancelFunc
+	started  map[int64]bool
 }
 
 func New(st *meta.Store, engines map[string]engine.Engine,
@@ -30,7 +31,7 @@ func New(st *meta.Store, engines map[string]engine.Engine,
 		return nil, err
 	}
 	return &Runner{st: st, engines: engines, newStore: newStore, logsDir: logsDir,
-		cancels: map[int64]context.CancelFunc{}}, nil
+		cancels: map[int64]context.CancelFunc{}, started: map[int64]bool{}}, nil
 }
 
 func (r *Runner) Recover(ctx context.Context) error {
@@ -38,7 +39,16 @@ func (r *Runner) Recover(ctx context.Context) error {
 	return err
 }
 
-func (r *Runner) Start(jobID int64) { go r.run(jobID) }
+func (r *Runner) Start(jobID int64) {
+	r.mu.Lock()
+	if r.started[jobID] {
+		r.mu.Unlock()
+		return
+	}
+	r.started[jobID] = true
+	r.mu.Unlock()
+	go r.run(jobID)
+}
 
 func (r *Runner) Cancel(jobID int64) bool {
 	r.mu.Lock()
@@ -67,6 +77,10 @@ func (r *Runner) run(jobID int64) {
 	ctx := context.Background()
 	job, err := r.st.GetJob(ctx, jobID)
 	if err != nil {
+		return
+	}
+	if job.DumpID == nil {
+		_ = r.st.SetJobFinished(ctx, jobID, "failed", "job has no dump reference")
 		return
 	}
 	db, err := r.st.GetDatabase(ctx, job.DatabaseID)
@@ -128,7 +142,7 @@ func (r *Runner) runDump(ctx context.Context, job *meta.Job, db *meta.Database, 
 	dumpErr := eng.Dump(ctx, *db, tmp, log)
 	closeErr := tmp.Close()
 	if dumpErr != nil {
-		_ = r.st.UpdateDumpResult(ctx, *job.DumpID, "failed", "", 0)
+		_ = r.st.UpdateDumpResult(context.Background(), *job.DumpID, "failed", "", 0)
 		return dumpErr
 	}
 	if closeErr != nil {
