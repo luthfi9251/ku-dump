@@ -5,6 +5,8 @@ import Layout from './Layout'
 import Login from './pages/Login'
 import Databases from './pages/Databases'
 import Dumps from './pages/Dumps'
+import Jobs from './pages/Jobs'
+import Settings from './pages/Settings'
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
@@ -26,8 +28,8 @@ export default function App() {
             >
               <Route index element={<Databases />} />
               <Route path="/dumps" element={<Dumps />} />
-              <Route path="/jobs" element={<Placeholder title="Jobs" />} />
-              <Route path="/settings" element={<Placeholder title="Settings" />} />
+              <Route path="/jobs" element={<Jobs />} />
+              <Route path="/settings" element={<Settings />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
@@ -37,6 +39,3 @@ export default function App() {
   )
 }
 
-function Placeholder({ title }: { title: string }) {
-  return <div className="text-slate-500">{title} page — implemented in the next tasks.</div>
-}
