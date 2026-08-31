@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AuthProvider, RequireAuth } from './auth'
 import Layout from './Layout'
 import Login from './pages/Login'
+import Databases from './pages/Databases'
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
@@ -22,7 +23,7 @@ export default function App() {
                 </RequireAuth>
               }
             >
-              <Route index element={<Placeholder title="Databases" />} />
+              <Route index element={<Databases />} />
               <Route path="/dumps" element={<Placeholder title="Dumps" />} />
               <Route path="/jobs" element={<Placeholder title="Jobs" />} />
               <Route path="/settings" element={<Placeholder title="Settings" />} />
