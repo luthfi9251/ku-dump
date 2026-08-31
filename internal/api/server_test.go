@@ -36,6 +36,9 @@ func (f fakeEngine) Dump(ctx context.Context, db meta.Database, out io.Writer, l
 }
 func (f fakeEngine) Restore(ctx context.Context, db meta.Database, sourceDB string, in io.Reader, log io.Writer) error {
 	io.Copy(log, in)
+	if db.DBName == "slow" {
+		time.Sleep(2 * time.Second)
+	}
 	return nil
 }
 
