@@ -36,6 +36,10 @@ type storageSettingsPayload struct {
 	SecretKey string `json:"secretKey"`
 }
 
+func (s *Server) S3ConfigPublic(ctx context.Context) (storage.S3Config, bool) {
+	return s.s3Config(ctx)
+}
+
 func (s *Server) s3Config(ctx context.Context) (storage.S3Config, bool) {
 	get := func(k string) string {
 		v, ok, _ := s.Store.GetSetting(ctx, k)
