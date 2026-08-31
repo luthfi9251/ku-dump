@@ -59,10 +59,18 @@ func newTestServer(t *testing.T) http.Handler {
 		t.Fatal(err)
 	}
 	newStore := func(kind string) (storage.Store, error) {
-		if kind != "local" {
-			return nil, fmt.Errorf("storage %q not configured", kind)
+		if kind == "local" {
+			return storage.NewLocalFS(filepath.Join(dir, "dumps"))
 		}
-		return storage.NewLocalFS(filepath.Join(dir, "dumps"))
+		if kind == "s3" {
+			srv := &Server{Deps: Deps{Store: st, Crypt: cx}}
+			cfg, configured := srv.s3Config(context.Background())
+			if !configured {
+				return nil, fmt.Errorf("s3 storage not configured")
+			}
+			return storage.NewS3(cfg)
+		}
+		return nil, fmt.Errorf("unknown storage %q", kind)
 	}
 	engines := map[string]engine.Engine{"postgres": fakeEngine{}, "mongodb": fakeMongo{}}
 	run, err := runner.New(st, engines, newStore, filepath.Join(dir, "dumps", "_logs"))
