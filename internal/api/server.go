@@ -55,6 +55,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("DELETE /api/dumps/{id}", s.auth(s.handleDeleteDump))
 	s.mux.HandleFunc("POST /api/restores/upload", s.auth(s.handleUploadRestore))
 	s.mux.HandleFunc("POST /api/restores", s.auth(s.handleCreateRestore))
+	s.mux.HandleFunc("GET /api/jobs", s.auth(s.handleListJobs))
+	s.mux.HandleFunc("GET /api/jobs/{id}", s.auth(s.handleGetJob))
+	s.mux.HandleFunc("POST /api/jobs/{id}/cancel", s.auth(s.handleCancelJob))
 	s.mux.HandleFunc("/", s.handleNotFound)
 }
 
