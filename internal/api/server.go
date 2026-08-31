@@ -49,6 +49,11 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("PUT /api/databases/{id}", s.auth(s.handleUpdateDatabase))
 	s.mux.HandleFunc("DELETE /api/databases/{id}", s.auth(s.handleDeleteDatabase))
 	s.mux.HandleFunc("POST /api/databases/{id}/test", s.auth(s.handleTestDatabase))
+	s.mux.HandleFunc("POST /api/databases/{id}/dump", s.auth(s.handleCreateDump))
+	s.mux.HandleFunc("GET /api/dumps", s.auth(s.handleListDumps))
+	s.mux.HandleFunc("GET /api/dumps/{id}/download", s.auth(s.handleDownloadDump))
+	s.mux.HandleFunc("DELETE /api/dumps/{id}", s.auth(s.handleDeleteDump))
+	s.mux.HandleFunc("POST /api/restores/upload", s.auth(s.handleUploadRestore))
 	s.mux.HandleFunc("/", s.handleNotFound)
 }
 
