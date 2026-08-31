@@ -52,6 +52,39 @@ func TestStorageSettingsValidation(t *testing.T) {
 	}
 }
 
+func TestStorageSettingsClear(t *testing.T) {
+	h := newTestServer(t)
+	cookie := setupAndLogin(t, h)
+	body := map[string]string{
+		"endpoint": "http://127.0.0.1:9000", "region": "us-east-1",
+		"bucket": "kudump", "prefix": "backups", "accessKey": "minioadmin", "secretKey": "minioadmin",
+	}
+	rec := doJSON(t, h, "PUT", "/api/settings/storage", body, cookie)
+	if rec.Code != 200 {
+		t.Fatalf("put = %d: %s", rec.Code, rec.Body.String())
+	}
+	var got storageSettingsDTO
+	rec = doJSON(t, h, "GET", "/api/settings/storage", nil, cookie)
+	json.NewDecoder(rec.Body).Decode(&got)
+	if !got.Configured || !got.SecretSet {
+		t.Fatalf("after put = %+v", got)
+	}
+	rec = doJSON(t, h, "PUT", "/api/settings/storage",
+		map[string]string{"endpoint": "", "region": "", "bucket": "", "prefix": "", "accessKey": ""},
+		cookie)
+	if rec.Code != 200 {
+		t.Fatalf("put clear = %d: %s", rec.Code, rec.Body.String())
+	}
+	rec = doJSON(t, h, "GET", "/api/settings/storage", nil, cookie)
+	json.NewDecoder(rec.Body).Decode(&got)
+	if got.Configured {
+		t.Fatalf("configured should be false after clearing PUT: %+v", got)
+	}
+	if got.Bucket != "" || got.Endpoint != "" || got.Prefix != "" || got.AccessKey != "" {
+		t.Fatalf("fields not cleared: %+v", got)
+	}
+}
+
 func TestStorageSettingsTestNotConfigured(t *testing.T) {
 	h := newTestServer(t)
 	cookie := setupAndLogin(t, h)

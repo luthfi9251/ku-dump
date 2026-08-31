@@ -84,6 +84,11 @@ func (s *Store) UpdateDumpResult(ctx context.Context, id int64, status, location
 	return err
 }
 
+func (s *Store) FailPendingDumps(ctx context.Context) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE dumps SET status = 'failed' WHERE status = 'pending'`)
+	return err
+}
+
 func (s *Store) DeleteDump(ctx context.Context, id int64) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM dumps WHERE id = ?`, id)
 	return err

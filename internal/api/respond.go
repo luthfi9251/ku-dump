@@ -16,6 +16,7 @@ func fail(w http.ResponseWriter, status int, code, msg string) {
 }
 
 func decodeBody(w http.ResponseWriter, r *http.Request, v any) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
 		fail(w, http.StatusBadRequest, "INVALID_BODY", "invalid JSON body: "+err.Error())
 		return false

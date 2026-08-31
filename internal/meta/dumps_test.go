@@ -33,6 +33,29 @@ func TestDumpLifecycle(t *testing.T) {
 	}
 }
 
+func TestFailPendingDumps(t *testing.T) {
+	st := testStore(t)
+	ctx := context.Background()
+	db := sampleDB()
+	dbID, _ := st.CreateDatabase(ctx, &db)
+	pendingID, _ := st.CreateDump(ctx, &Dump{DatabaseID: dbID, Engine: "postgres", Label: "p", Storage: "local", Status: "pending", CreatedBy: 1})
+	st.CreateDump(ctx, &Dump{DatabaseID: dbID, Engine: "postgres", Label: "r", Storage: "local", Status: "ready", CreatedBy: 1})
+	st.CreateDump(ctx, &Dump{DatabaseID: 0, Engine: "mongodb", Label: "u", Storage: "local", Status: "uploaded", CreatedBy: 1})
+	if err := st.FailPendingDumps(ctx); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := st.GetDump(ctx, pendingID)
+	if got.Status != "failed" {
+		t.Fatalf("pending dump status = %s", got.Status)
+	}
+	rows, _ := st.ListDumps(ctx)
+	for _, r := range rows {
+		if r.Label != "p" && r.Status == "failed" {
+			t.Fatalf("non-pending dump marked failed: %+v", r)
+		}
+	}
+}
+
 func TestListDumpsJoinsDatabaseName(t *testing.T) {
 	st := testStore(t)
 	ctx := context.Background()

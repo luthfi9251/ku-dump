@@ -1,7 +1,9 @@
 package api
 
 import (
+	"errors"
 	"io"
+	"log"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -78,10 +80,6 @@ func (s *Server) handleCreateDump(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, "TOOL_MISSING", "missing tools: "+strings.Join(missing, ", "))
 		return
 	}
-	if has, _ := s.Store.HasActiveJob(r.Context(), dbID); has {
-		fail(w, http.StatusConflict, "JOB_ACTIVE", "a job is already running for this database")
-		return
-	}
 	label := req.Label
 	if label == "" {
 		label = db.Name + " " + time.Now().Format("2006-01-02 15:04")
@@ -91,15 +89,22 @@ func (s *Server) handleCreateDump(w http.ResponseWriter, r *http.Request) {
 		SourceDB: db.DBName, Status: "pending", CreatedBy: userID(r),
 	})
 	if err != nil {
-		fail(w, http.StatusInternalServerError, "INTERNAL", err.Error())
+		log.Printf("create dump: %v", err)
+		fail(w, http.StatusInternalServerError, "INTERNAL", "internal error")
 		return
 	}
 	storage := req.Storage
-	jobID, err := s.Store.CreateJob(r.Context(), &meta.Job{
+	jobID, err := s.Store.CreateJobGuarded(r.Context(), &meta.Job{
 		Type: "dump", DatabaseID: db.ID, DumpID: &dumpID, Storage: &storage,
 	})
 	if err != nil {
-		fail(w, http.StatusInternalServerError, "INTERNAL", err.Error())
+		if errors.Is(err, meta.ErrJobActive) {
+			_ = s.Store.DeleteDump(r.Context(), dumpID)
+			fail(w, http.StatusConflict, "JOB_ACTIVE", "a job is already running for this database")
+			return
+		}
+		log.Printf("create dump job: %v", err)
+		fail(w, http.StatusInternalServerError, "INTERNAL", "internal error")
 		return
 	}
 	s.Runner.Start(jobID)
@@ -109,7 +114,8 @@ func (s *Server) handleCreateDump(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleListDumps(w http.ResponseWriter, r *http.Request) {
 	rows, err := s.Store.ListDumps(r.Context())
 	if err != nil {
-		fail(w, http.StatusInternalServerError, "INTERNAL", err.Error())
+		log.Printf("list dumps: %v", err)
+		fail(w, http.StatusInternalServerError, "INTERNAL", "internal error")
 		return
 	}
 	engineFilter := r.URL.Query().Get("engine")
@@ -142,12 +148,14 @@ func (s *Server) handleDownloadDump(w http.ResponseWriter, r *http.Request) {
 	}
 	store, err := s.NewStore(dump.Storage)
 	if err != nil {
-		fail(w, http.StatusInternalServerError, "INTERNAL", err.Error())
+		log.Printf("open storage %s: %v", dump.Storage, err)
+		fail(w, http.StatusInternalServerError, "INTERNAL", "internal error")
 		return
 	}
 	rc, err := store.Open(r.Context(), dump.Location)
 	if err != nil {
-		fail(w, http.StatusInternalServerError, "INTERNAL", "cannot open dump file: "+err.Error())
+		log.Printf("open dump %d: %v", dump.ID, err)
+		fail(w, http.StatusInternalServerError, "INTERNAL", "internal error")
 		return
 	}
 	defer rc.Close()
@@ -169,7 +177,8 @@ func (s *Server) handleDeleteDump(w http.ResponseWriter, r *http.Request) {
 		_ = store.Delete(r.Context(), dump.Location)
 	}
 	if err := s.Store.DeleteDump(r.Context(), dump.ID); err != nil {
-		fail(w, http.StatusInternalServerError, "INTERNAL", err.Error())
+		log.Printf("delete dump %d: %v", dump.ID, err)
+		fail(w, http.StatusInternalServerError, "INTERNAL", "internal error")
 		return
 	}
 	jsonOut(w, http.StatusOK, map[string]bool{"ok": true})

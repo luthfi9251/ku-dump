@@ -3,6 +3,7 @@ package meta
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"time"
 )
 
@@ -58,6 +59,26 @@ func (s *Store) CreateJob(ctx context.Context, j *Job) (int64, error) {
 		VALUES (?, ?, ?, ?)`, j.Type, j.DatabaseID, j.DumpID, j.Storage)
 	if err != nil {
 		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+var ErrJobActive = errors.New("a job is already active for this database")
+
+func (s *Store) CreateJobGuarded(ctx context.Context, j *Job) (int64, error) {
+	res, err := s.db.ExecContext(ctx, `INSERT INTO jobs (type, database_id, dump_id, storage)
+		SELECT ?, ?, ?, ?
+		WHERE NOT EXISTS (SELECT 1 FROM jobs WHERE database_id = ? AND status IN ('pending','running'))`,
+		j.Type, j.DatabaseID, j.DumpID, j.Storage, j.DatabaseID)
+	if err != nil {
+		return 0, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	if n == 0 {
+		return 0, ErrJobActive
 	}
 	return res.LastInsertId()
 }

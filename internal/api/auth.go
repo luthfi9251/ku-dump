@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"strconv"
@@ -118,7 +119,8 @@ type authRequest struct {
 func (s *Server) handleAuthStatus(w http.ResponseWriter, r *http.Request) {
 	n, err := s.Store.CountUsers(r.Context())
 	if err != nil {
-		fail(w, http.StatusInternalServerError, "INTERNAL", err.Error())
+		log.Printf("count users: %v", err)
+		fail(w, http.StatusInternalServerError, "INTERNAL", "internal error")
 		return
 	}
 	jsonOut(w, http.StatusOK, map[string]bool{"needsSetup": n == 0})
@@ -127,7 +129,8 @@ func (s *Server) handleAuthStatus(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 	n, err := s.Store.CountUsers(r.Context())
 	if err != nil {
-		fail(w, http.StatusInternalServerError, "INTERNAL", err.Error())
+		log.Printf("count users: %v", err)
+		fail(w, http.StatusInternalServerError, "INTERNAL", "internal error")
 		return
 	}
 	if n > 0 {
@@ -148,12 +151,14 @@ func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
-		fail(w, http.StatusInternalServerError, "INTERNAL", err.Error())
+		log.Printf("hash password: %v", err)
+		fail(w, http.StatusInternalServerError, "INTERNAL", "internal error")
 		return
 	}
 	id, err := s.Store.CreateUser(r.Context(), req.Username, string(hash))
 	if err != nil {
-		fail(w, http.StatusInternalServerError, "INTERNAL", err.Error())
+		log.Printf("create user: %v", err)
+		fail(w, http.StatusInternalServerError, "INTERNAL", "internal error")
 		return
 	}
 	jsonOut(w, http.StatusCreated, map[string]any{"id": encID(id), "username": req.Username})

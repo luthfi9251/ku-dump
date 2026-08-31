@@ -35,8 +35,10 @@ func New(st *meta.Store, engines map[string]engine.Engine,
 }
 
 func (r *Runner) Recover(ctx context.Context) error {
-	_, err := r.st.FailActiveJobs(ctx, "interrupted by restart")
-	return err
+	if _, err := r.st.FailActiveJobs(ctx, "interrupted by restart"); err != nil {
+		return err
+	}
+	return r.st.FailPendingDumps(ctx)
 }
 
 func (r *Runner) Start(jobID int64) {
@@ -132,35 +134,38 @@ func (r *Runner) run(jobID int64) {
 	_ = r.st.SetJobFinished(context.Background(), jobID, status, errMsg)
 }
 
-func (r *Runner) runDump(ctx context.Context, job *meta.Job, db *meta.Database, eng engine.Engine, log io.Writer) error {
+func (r *Runner) runDump(ctx context.Context, job *meta.Job, db *meta.Database, eng engine.Engine, log io.Writer) (err error) {
 	tmp, err := os.CreateTemp("", "kudump-*.dump")
 	if err != nil {
 		return err
 	}
 	tmpName := tmp.Name()
 	defer os.Remove(tmpName)
-	dumpErr := eng.Dump(ctx, *db, tmp, log)
-	closeErr := tmp.Close()
-	if dumpErr != nil {
-		_ = r.st.UpdateDumpResult(context.Background(), *job.DumpID, "failed", "", 0)
-		return dumpErr
+	defer func() {
+		if err != nil {
+			_ = r.st.UpdateDumpResult(context.Background(), *job.DumpID, "failed", "", 0)
+		}
+	}()
+	if err = eng.Dump(ctx, *db, tmp, log); err != nil {
+		return err
 	}
-	if closeErr != nil {
-		return closeErr
+	if err = tmp.Close(); err != nil {
+		return err
 	}
 	store, err := r.storeFor(job.Storage)
 	if err != nil {
 		return err
 	}
-	info, err := os.Stat(tmpName)
-	if err != nil {
+	var info os.FileInfo
+	if info, err = os.Stat(tmpName); err != nil {
 		return err
 	}
 	key := storage.KeyFor(db.Engine, storage.Slug(db.Name), time.Now().UTC())
-	if err := store.Put(ctx, key, tmpName); err != nil {
+	if err = store.Put(ctx, key, tmpName); err != nil {
 		return err
 	}
-	return r.st.UpdateDumpResult(ctx, *job.DumpID, "ready", key, info.Size())
+	err = r.st.UpdateDumpResult(ctx, *job.DumpID, "ready", key, info.Size())
+	return err
 }
 
 func (r *Runner) runRestore(ctx context.Context, job *meta.Job, db *meta.Database, eng engine.Engine, log io.Writer) error {

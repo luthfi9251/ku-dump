@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -85,7 +86,8 @@ func (s *Server) dbDTO(ctx context.Context, db *meta.Database) databaseDTO {
 func (s *Server) handleListDatabases(w http.ResponseWriter, r *http.Request) {
 	dbs, err := s.Store.ListDatabases(r.Context())
 	if err != nil {
-		fail(w, http.StatusInternalServerError, "INTERNAL", err.Error())
+		log.Printf("list databases: %v", err)
+		fail(w, http.StatusInternalServerError, "INTERNAL", "internal error")
 		return
 	}
 	out := make([]databaseDTO, 0, len(dbs))
@@ -123,7 +125,8 @@ func (s *Server) handleCreateDatabase(w http.ResponseWriter, r *http.Request) {
 	}
 	enc, err := s.Crypt.Encrypt(p.Password)
 	if err != nil {
-		fail(w, http.StatusInternalServerError, "INTERNAL", err.Error())
+		log.Printf("encrypt password: %v", err)
+		fail(w, http.StatusInternalServerError, "INTERNAL", "internal error")
 		return
 	}
 	db := p.toMeta(enc)
@@ -133,7 +136,8 @@ func (s *Server) handleCreateDatabase(w http.ResponseWriter, r *http.Request) {
 	}
 	id, err := s.Store.CreateDatabase(r.Context(), &db)
 	if err != nil {
-		fail(w, http.StatusInternalServerError, "INTERNAL", err.Error())
+		log.Printf("create database: %v", err)
+		fail(w, http.StatusInternalServerError, "INTERNAL", "internal error")
 		return
 	}
 	created, _ := s.Store.GetDatabase(r.Context(), id)
@@ -187,7 +191,8 @@ func (s *Server) handleUpdateDatabase(w http.ResponseWriter, r *http.Request) {
 	if p.Password != "" {
 		enc, err = s.Crypt.Encrypt(p.Password)
 		if err != nil {
-			fail(w, http.StatusInternalServerError, "INTERNAL", err.Error())
+			log.Printf("encrypt password: %v", err)
+			fail(w, http.StatusInternalServerError, "INTERNAL", "internal error")
 			return
 		}
 	}
@@ -200,7 +205,8 @@ func (s *Server) handleUpdateDatabase(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.Store.UpdateDatabase(r.Context(), &db); err != nil {
-		fail(w, http.StatusInternalServerError, "INTERNAL", err.Error())
+		log.Printf("update database %d: %v", id, err)
+		fail(w, http.StatusInternalServerError, "INTERNAL", "internal error")
 		return
 	}
 	updated, _ := s.Store.GetDatabase(r.Context(), id)
@@ -218,7 +224,8 @@ func (s *Server) handleDeleteDatabase(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.Store.DeleteDatabase(r.Context(), id); err != nil {
-		fail(w, http.StatusInternalServerError, "INTERNAL", err.Error())
+		log.Printf("delete database %d: %v", id, err)
+		fail(w, http.StatusInternalServerError, "INTERNAL", "internal error")
 		return
 	}
 	jsonOut(w, http.StatusOK, map[string]bool{"ok": true})
@@ -269,7 +276,8 @@ func (s *Server) handleTestDatabasePayload(w http.ResponseWriter, r *http.Reques
 	}
 	enc, err := s.Crypt.Encrypt(p.Password)
 	if err != nil {
-		fail(w, http.StatusInternalServerError, "INTERNAL", err.Error())
+		log.Printf("encrypt password: %v", err)
+		fail(w, http.StatusInternalServerError, "INTERNAL", "internal error")
 		return
 	}
 	err = eng.TestConnection(r.Context(), p.toMeta(enc))

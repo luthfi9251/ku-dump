@@ -1,6 +1,7 @@
 package api
 
 import (
+	"log"
 	"net/http"
 	"strconv"
 	"time"
@@ -63,7 +64,8 @@ func (s *Server) handleListJobs(w http.ResponseWriter, r *http.Request) {
 	}
 	rows, err := s.Store.ListJobs(r.Context(), limit)
 	if err != nil {
-		fail(w, http.StatusInternalServerError, "INTERNAL", err.Error())
+		log.Printf("list jobs: %v", err)
+		fail(w, http.StatusInternalServerError, "INTERNAL", "internal error")
 		return
 	}
 	out := make([]jobDTO, 0, len(rows))

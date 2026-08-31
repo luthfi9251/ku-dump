@@ -1,6 +1,8 @@
 package api
 
 import (
+	"errors"
+	"log"
 	"net/http"
 
 	"github.com/luthfi9251/ku-dump/internal/meta"
@@ -51,15 +53,16 @@ func (s *Server) handleCreateRestore(w http.ResponseWriter, r *http.Request) {
 			"type the target database name ("+target.Name+") to confirm the restore")
 		return
 	}
-	if has, _ := s.Store.HasActiveJob(r.Context(), target.ID); has {
-		fail(w, http.StatusConflict, "JOB_ACTIVE", "a job is already running for the target database")
-		return
-	}
-	jobID, err := s.Store.CreateJob(r.Context(), &meta.Job{
+	jobID, err := s.Store.CreateJobGuarded(r.Context(), &meta.Job{
 		Type: "restore", DatabaseID: target.ID, DumpID: &dump.ID,
 	})
 	if err != nil {
-		fail(w, http.StatusInternalServerError, "INTERNAL", err.Error())
+		if errors.Is(err, meta.ErrJobActive) {
+			fail(w, http.StatusConflict, "JOB_ACTIVE", "a job is already running for the target database")
+			return
+		}
+		log.Printf("create restore job: %v", err)
+		fail(w, http.StatusInternalServerError, "INTERNAL", "internal error")
 		return
 	}
 	s.Runner.Start(jobID)

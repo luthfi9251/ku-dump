@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"time"
@@ -50,7 +51,8 @@ func (s *Server) handleUploadRestore(w http.ResponseWriter, r *http.Request) {
 
 	tmp, err := os.CreateTemp("", "kudump-upload-*")
 	if err != nil {
-		fail(w, http.StatusInternalServerError, "INTERNAL", err.Error())
+		log.Printf("create temp file: %v", err)
+		fail(w, http.StatusInternalServerError, "INTERNAL", "internal error")
 		return
 	}
 	tmpName := tmp.Name()
@@ -65,7 +67,8 @@ func (s *Server) handleUploadRestore(w http.ResponseWriter, r *http.Request) {
 	head := make([]byte, 5)
 	f, err := os.Open(tmpName)
 	if err != nil {
-		fail(w, http.StatusInternalServerError, "INTERNAL", err.Error())
+		log.Printf("open temp file: %v", err)
+		fail(w, http.StatusInternalServerError, "INTERNAL", "internal error")
 		return
 	}
 	n, _ := f.Read(head)
@@ -78,7 +81,8 @@ func (s *Server) handleUploadRestore(w http.ResponseWriter, r *http.Request) {
 
 	local, err := s.NewStore("local")
 	if err != nil {
-		fail(w, http.StatusInternalServerError, "INTERNAL", err.Error())
+		log.Printf("open local storage: %v", err)
+		fail(w, http.StatusInternalServerError, "INTERNAL", "internal error")
 		return
 	}
 	randBuf := make([]byte, 2)
@@ -90,7 +94,8 @@ func (s *Server) handleUploadRestore(w http.ResponseWriter, r *http.Request) {
 	key := fmt.Sprintf("uploads/%s-%s%s",
 		time.Now().UTC().Format("20060102-150405"), hex.EncodeToString(randBuf), ext)
 	if err := local.Put(r.Context(), key, tmpName); err != nil {
-		fail(w, http.StatusInternalServerError, "INTERNAL", err.Error())
+		log.Printf("store upload: %v", err)
+		fail(w, http.StatusInternalServerError, "INTERNAL", "internal error")
 		return
 	}
 
@@ -103,7 +108,8 @@ func (s *Server) handleUploadRestore(w http.ResponseWriter, r *http.Request) {
 		SourceDB: "", SizeBytes: size, Status: "uploaded", CreatedBy: userID(r),
 	})
 	if err != nil {
-		fail(w, http.StatusInternalServerError, "INTERNAL", err.Error())
+		log.Printf("create dump row: %v", err)
+		fail(w, http.StatusInternalServerError, "INTERNAL", "internal error")
 		return
 	}
 	rows, _ := s.Store.ListDumps(r.Context())

@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"log"
 	"net/http"
 
 	"github.com/luthfi9251/ku-dump/internal/storage"
@@ -84,9 +85,13 @@ func (s *Server) handlePutStorageSettings(w http.ResponseWriter, r *http.Request
 		}
 	}
 	ctx := r.Context()
+	var saveErr error
 	set := func(k, v string) {
-		if v != "" {
-			_ = s.Store.SetSetting(ctx, k, v)
+		if err := s.Store.SetSetting(ctx, k, v); err != nil {
+			log.Printf("save setting %s: %v", k, err)
+			if saveErr == nil {
+				saveErr = err
+			}
 		}
 	}
 	set(keyS3Endpoint, p.Endpoint)
@@ -94,13 +99,22 @@ func (s *Server) handlePutStorageSettings(w http.ResponseWriter, r *http.Request
 	set(keyS3Bucket, p.Bucket)
 	set(keyS3Prefix, p.Prefix)
 	set(keyS3AccessKey, p.AccessKey)
+	if saveErr != nil {
+		fail(w, http.StatusInternalServerError, "INTERNAL", "internal error")
+		return
+	}
 	if p.SecretKey != "" {
 		enc, err := s.Crypt.Encrypt(p.SecretKey)
 		if err != nil {
-			fail(w, http.StatusInternalServerError, "INTERNAL", err.Error())
+			log.Printf("encrypt secret key: %v", err)
+			fail(w, http.StatusInternalServerError, "INTERNAL", "internal error")
 			return
 		}
-		_ = s.Store.SetSetting(ctx, keyS3SecretEnc, enc)
+		if err := s.Store.SetSetting(ctx, keyS3SecretEnc, enc); err != nil {
+			log.Printf("save setting %s: %v", keyS3SecretEnc, err)
+			fail(w, http.StatusInternalServerError, "INTERNAL", "internal error")
+			return
+		}
 	}
 	s.handleGetStorageSettings(w, r)
 }

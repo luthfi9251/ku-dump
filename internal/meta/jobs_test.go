@@ -2,6 +2,7 @@ package meta
 
 import (
 	"context"
+	"errors"
 	"testing"
 )
 
@@ -81,6 +82,32 @@ func TestFailActiveJobsAndList(t *testing.T) {
 		if r.Status != "failed" || r.Err != "interrupted by restart" {
 			t.Fatalf("row = %+v", r)
 		}
+	}
+}
+
+func TestCreateJobGuarded(t *testing.T) {
+	st := testStore(t)
+	ctx := context.Background()
+	db := sampleDB()
+	dbID, _ := st.CreateDatabase(ctx, &db)
+	dumpID, _ := st.CreateDump(ctx, &Dump{DatabaseID: dbID, Engine: "postgres", Label: "l", Storage: "local", Status: "pending", CreatedBy: 1})
+	storage := "local"
+	id, err := st.CreateJobGuarded(ctx, &Job{Type: "dump", DatabaseID: dbID, DumpID: &dumpID, Storage: &storage})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = st.CreateJobGuarded(ctx, &Job{Type: "dump", DatabaseID: dbID, DumpID: &dumpID, Storage: &storage})
+	if !errors.Is(err, ErrJobActive) {
+		t.Fatalf("err = %v, want ErrJobActive", err)
+	}
+	if _, err := st.CreateJobGuarded(ctx, &Job{Type: "dump", DatabaseID: dbID + 1}); err != nil {
+		t.Fatalf("other database should be allowed: %v", err)
+	}
+	if err := st.SetJobFinished(ctx, id, "success", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateJobGuarded(ctx, &Job{Type: "restore", DatabaseID: dbID, DumpID: &dumpID}); err != nil {
+		t.Fatalf("after finish should be allowed: %v", err)
 	}
 }
 

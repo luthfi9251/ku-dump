@@ -219,9 +219,36 @@ func TestRestoreJob(t *testing.T) {
 	}
 }
 
+func TestDumpJobFailureAfterDumpMarksDumpFailed(t *testing.T) {
+	run, st, _ := setup(t, &fakeEngine{name: "postgres"})
+	ctx := context.Background()
+	dbID, err := st.CreateDatabase(ctx, &meta.Database{Name: "prod", Engine: "postgres", Host: "h", Port: 1, DBName: "appdb", Username: "u", PasswordEnc: "ENC"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dumpID, err := st.CreateDump(ctx, &meta.Dump{DatabaseID: dbID, Engine: "postgres", Label: "l", Storage: "s3", SourceDB: "appdb", Status: "pending", CreatedBy: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	storageKind := "s3"
+	jobID, err := st.CreateJob(ctx, &meta.Job{Type: "dump", DatabaseID: dbID, DumpID: &dumpID, Storage: &storageKind})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run.Start(jobID)
+	j := waitTerminal(t, st, jobID)
+	if j.Status != "failed" {
+		t.Fatalf("status = %s", j.Status)
+	}
+	d, _ := st.GetDump(ctx, dumpID)
+	if d.Status != "failed" || d.Location != "" || d.SizeBytes != 0 {
+		t.Fatalf("dump = %+v", d)
+	}
+}
+
 func TestRecoverFailsActiveJobs(t *testing.T) {
 	run, st, _ := setup(t, &fakeEngine{name: "postgres"})
-	_, _, jobID := seedDumpJob(t, st)
+	_, dumpID, jobID := seedDumpJob(t, st)
 	if err := st.SetJobRunning(context.Background(), jobID, ""); err != nil {
 		t.Fatal(err)
 	}
@@ -231,6 +258,10 @@ func TestRecoverFailsActiveJobs(t *testing.T) {
 	j, _ := st.GetJob(context.Background(), jobID)
 	if j.Status != "failed" || !strings.Contains(j.Err, "interrupted") {
 		t.Fatalf("job = %+v", j)
+	}
+	d, _ := st.GetDump(context.Background(), dumpID)
+	if d.Status != "failed" {
+		t.Fatalf("dump status = %s, want failed after recover", d.Status)
 	}
 }
 
