@@ -2,7 +2,7 @@ dumps/
 *.db
 *.db-*
 .ku-dump-key
-ku-dump
+/ku-dump
 web/node_modules/
 web/dist/*
 !web/dist/index.html
