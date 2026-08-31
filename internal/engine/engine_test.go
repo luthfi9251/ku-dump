@@ -76,6 +76,14 @@ func TestResolveToolsOverrideMissingBinary(t *testing.T) {
 	}
 }
 
+func TestResolveToolsWhitespaceOverride(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	ts := ResolveTools(map[string]string{"pg_dump": "   "})
+	if ts["pg_dump"] != nil {
+		t.Fatal("whitespace override resolved")
+	}
+}
+
 func TestBuildEngines(t *testing.T) {
 	engines := BuildEngines(nil, mustCrypt(t))
 	if _, ok := engines["postgres"]; !ok {

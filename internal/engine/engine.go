@@ -33,6 +33,9 @@ func ResolveTools(overrides map[string]string) ToolSet {
 	for _, name := range ToolNames {
 		if ov := overrides[name]; ov != "" {
 			fields := strings.Fields(ov)
+			if len(fields) == 0 {
+				continue
+			}
 			if path, err := exec.LookPath(fields[0]); err == nil {
 				ts[name] = &Tool{Name: name, Args: append([]string{path}, fields[1:]...)}
 			}
