@@ -84,3 +84,7 @@ func (s *S3) Test(ctx context.Context) error {
 	}
 	return nil
 }
+
+func (s *S3) RawClient() (*minio.Client, error) {
+	return s.client, nil
+}
