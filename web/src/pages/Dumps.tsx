@@ -26,7 +26,7 @@ export default function Dumps() {
   const [storageFilter, setStorageFilter] = useState('')
   const [restoreSource, setRestoreSource] = useState<DumpDTO | null>(null)
 
-  const dumps = useQuery({ queryKey: ['dumps'], queryFn: () => api.get<DumpDTO[]>('/api/dumps'), refetchInterval: 3000 })
+  const dumps = useQuery({ queryKey: ['dumps'], queryFn: () => api.get<DumpDTO[]>('/api/dumps'), refetchInterval: 10000 })
   const dbs = useQuery({ queryKey: ['databases'], queryFn: () => api.get<DatabaseDTO[]>('/api/databases') })
   const dests = useQuery({ queryKey: ['storage-destinations'], queryFn: () => api.get<StorageDestinationDTO[]>('/api/storage/destinations') })
 

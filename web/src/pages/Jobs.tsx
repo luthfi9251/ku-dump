@@ -17,7 +17,7 @@ export default function Jobs() {
   const jobs = useQuery({
     queryKey: ['jobs'],
     queryFn: () => api.get<JobDTO[]>('/api/jobs?limit=200'),
-    refetchInterval: 2000,
+    refetchInterval: 10000,
   })
 
   function openDrawer(id: string) {

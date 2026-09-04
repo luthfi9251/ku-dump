@@ -20,7 +20,7 @@ export default function Databases() {
   const dbs = useQuery({
     queryKey: ['databases'],
     queryFn: () => api.get<DatabaseDTO[]>('/api/databases'),
-    refetchInterval: 3000,
+    refetchInterval: 10000,
   })
 
   const remove = useMutation({

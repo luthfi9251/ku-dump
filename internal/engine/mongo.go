@@ -87,6 +87,7 @@ func (m *Mongo) uri(db meta.Database) string {
 	if db.Username != "" {
 		u.User = url.UserPassword(db.Username, m.password(db))
 	}
+	u.Path = "/" // driver requires a "/" before the query string
 	q := url.Values{}
 	q.Set("authSource", m.opts(db).AuthSource)
 	q.Set("connectTimeoutMS", "5000")

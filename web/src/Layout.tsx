@@ -19,7 +19,7 @@ export default function Layout() {
   const jobs = useQuery({
     queryKey: ['jobs-summary'],
     queryFn: () => api.get<JobDTO[]>('/api/jobs?limit=50'),
-    refetchInterval: 3000,
+    refetchInterval: 10000,
   })
 
   const runningCount = jobs.data?.filter((j) => j.status === 'pending' || j.status === 'running').length ?? 0

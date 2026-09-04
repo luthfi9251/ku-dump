@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/luthfi9251/ku-dump/internal/meta"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 func mongoDB(t *testing.T, user string) meta.Database {
@@ -100,6 +101,22 @@ func TestMongoDumpRestoreRun(t *testing.T) {
 	}
 	if !strings.Contains(log.String(), "--drop") {
 		t.Fatalf("log = %q", log.String())
+	}
+}
+
+// Regression: mongo-driver rejects "mongodb://host:port?query" — a "/" is
+// required before the query. uri() used to omit it, so every Mongo
+// TestConnection failed with "error parsing uri".
+func TestMongoURIParses(t *testing.T) {
+	m := newMongo(t)
+	for _, user := range []string{"alice", ""} {
+		u := m.uri(mongoDB(t, user))
+		if !strings.Contains(u, "/?") {
+			t.Fatalf("uri %q lacks / before query", u)
+		}
+		if err := options.Client().ApplyURI(u).Validate(); err != nil {
+			t.Fatalf("ApplyURI(%q) = %v", u, err)
+		}
 	}
 }
 
