@@ -88,3 +88,46 @@ func (s *Store) CountDumpsForDestination(ctx context.Context, id int64) (int64, 
 	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM dumps WHERE dest_id = ?`, id).Scan(&n)
 	return n, err
 }
+
+// MigrateLegacyS3 moves the pre-multi-destination single S3 settings into a
+// storage destination. Runs inside one transaction; a failure leaves the
+// trigger key (s3_endpoint) in place so the next startup retries.
+func (s *Store) MigrateLegacyS3(ctx context.Context) (bool, error) {
+	ep, ok, err := s.GetSetting(ctx, "s3_endpoint")
+	if err != nil || !ok {
+		return false, err
+	}
+	get := func(k string) string {
+		v, _, _ := s.GetSetting(ctx, k)
+		return v
+	}
+	name := get("s3_bucket")
+	if name == "" {
+		name = "s3"
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+	res, err := tx.ExecContext(ctx, `INSERT INTO storage_destinations
+		(name, kind, endpoint, region, bucket, prefix, access_key, secret_enc)
+		VALUES (?, 's3', ?, ?, ?, ?, ?, ?)`,
+		name, ep, get("s3_region"), name, get("s3_prefix"), get("s3_access_key"), get("s3_secret_enc"))
+	if err != nil {
+		return false, err
+	}
+	destID, err := res.LastInsertId()
+	if err != nil {
+		return false, err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE dumps SET dest_id = ? WHERE storage = 's3'`, destID); err != nil {
+		return false, err
+	}
+	for _, k := range []string{"s3_region", "s3_bucket", "s3_prefix", "s3_access_key", "s3_secret_enc", "s3_endpoint"} {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM settings WHERE key = ?`, k); err != nil {
+			return false, err
+		}
+	}
+	return true, tx.Commit()
+}
