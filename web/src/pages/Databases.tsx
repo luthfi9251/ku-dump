@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { CheckCircle2, Database, HardDriveDownload, Layers, AlertTriangle, Pencil, Play, Plus, Search, Trash2, XCircle } from 'lucide-react'
 import { api } from '../lib/api'
-import type { DatabaseDTO, StorageSettingsDTO, TestResultDTO } from '../lib/types'
+import type { DatabaseDTO, TestResultDTO } from '../lib/types'
 import { Badge, Button, Input, Select, Spinner, StatCard } from '../ui'
 import DatabaseModal from '../modals/DatabaseModal'
 import DumpModal from '../modals/DumpModal'
@@ -21,10 +21,6 @@ export default function Databases() {
     queryKey: ['databases'],
     queryFn: () => api.get<DatabaseDTO[]>('/api/databases'),
     refetchInterval: 3000,
-  })
-  const storage = useQuery({
-    queryKey: ['storage-settings'],
-    queryFn: () => api.get<StorageSettingsDTO>('/api/settings/storage'),
   })
 
   const remove = useMutation({
@@ -253,12 +249,7 @@ export default function Databases() {
       <DatabaseModal open={showAdd} onClose={() => setShowAdd(false)} onSaved={invalidate} />
       <DatabaseModal open={editing !== undefined} onClose={() => setEditing(undefined)} db={editing} onSaved={invalidate} />
       {dumpTarget && (
-        <DumpModal
-          open
-          onClose={() => setDumpTarget(null)}
-          db={dumpTarget}
-          storageConfigured={storage.data?.configured ?? false}
-        />
+        <DumpModal open onClose={() => setDumpTarget(null)} db={dumpTarget} />
       )}
       {restoreTarget && (
         <RestoreModal open onClose={() => setRestoreTarget(null)} target={restoreTarget} onStarted={() => invalidate()} />

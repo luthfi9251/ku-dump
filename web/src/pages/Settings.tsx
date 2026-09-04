@@ -1,68 +1,42 @@
-import { useEffect, useState } from 'react'
-import type { FormEvent } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { CheckCircle2, Cloud, Eye, EyeOff, Terminal, AlertTriangle } from 'lucide-react'
+import { useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { AlertTriangle, CheckCircle2, Cloud, KeyRound, Pencil, Plus, Terminal, Trash2 } from 'lucide-react'
 import { api, ApiError } from '../lib/api'
-import type { StorageSettingsDTO, TestResultDTO, ToolsDTO } from '../lib/types'
-import { Badge, Button, Field, Input, Spinner } from '../ui'
+import type { StorageDestinationDTO, TestResultDTO, ToolsDTO } from '../lib/types'
+import { Badge, Button, Spinner } from '../ui'
+import DestinationModal from '../modals/DestinationModal'
 
 export default function Settings() {
-  const [endpoint, setEndpoint] = useState('')
-  const [region, setRegion] = useState('')
-  const [bucket, setBucket] = useState('')
-  const [prefix, setPrefix] = useState('')
-  const [accessKey, setAccessKey] = useState('')
-  const [secretKey, setSecretKey] = useState('')
-  const [showSecret, setShowSecret] = useState(false)
-  const [secretSet, setSecretSet] = useState(false)
-  const [msg, setMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
-  const [testMsg, setTestMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
-  const [busy, setBusy] = useState(false)
+  const qc = useQueryClient()
+  const [editing, setEditing] = useState<StorageDestinationDTO | undefined>(undefined)
+  const [showAdd, setShowAdd] = useState(false)
+  const [testMsg, setTestMsg] = useState<{ id: string; ok: boolean; text: string } | null>(null)
+  const [deleteErr, setDeleteErr] = useState('')
 
-  const settings = useQuery({ queryKey: ['storage-settings'], queryFn: () => api.get<StorageSettingsDTO>('/api/settings/storage') })
+  const dests = useQuery({
+    queryKey: ['storage-destinations'],
+    queryFn: () => api.get<StorageDestinationDTO[]>('/api/storage/destinations'),
+  })
   const tools = useQuery({ queryKey: ['tools'], queryFn: () => api.get<ToolsDTO>('/api/tools') })
 
-  useEffect(() => {
-    const s = settings.data
-    if (!s) return
-    setEndpoint(s.endpoint)
-    setRegion(s.region)
-    setBucket(s.bucket)
-    setPrefix(s.prefix)
-    setAccessKey(s.accessKey)
-    setSecretSet(s.secretSet)
-  }, [settings.data])
+  const invalidate = () => void qc.invalidateQueries({ queryKey: ['storage-destinations'] })
 
-  async function onSave(e: FormEvent) {
-    e.preventDefault()
-    setMsg(null)
-    setBusy(true)
-    try {
-      await api.put('/api/settings/storage', { endpoint, region, bucket, prefix, accessKey, secretKey })
-      setSecretKey('')
-      setMsg({ type: 'success', text: 'Storage settings saved successfully.' })
-      await settings.refetch()
-    } catch (err) {
-      setMsg({ type: 'error', text: err instanceof ApiError ? err.message : 'Save failed' })
-    } finally {
-      setBusy(false)
-    }
-  }
+  const remove = useMutation({
+    mutationFn: (id: string) => api.del(`/api/storage/destinations/${id}`),
+    onSuccess: () => {
+      setDeleteErr('')
+      invalidate()
+    },
+    onError: (err) => setDeleteErr(err instanceof ApiError ? err.message : 'delete failed'),
+  })
 
-  async function onTest() {
-    setTestMsg(null)
-    setBusy(true)
+  async function testDest(d: StorageDestinationDTO) {
+    setTestMsg({ id: d.id, ok: true, text: 'testing…' })
     try {
-      const res = await api.post<TestResultDTO>('/api/settings/storage/test')
-      setTestMsg(
-        res.ok
-          ? { type: 'success', text: 'S3 Storage connection verified successfully!' }
-          : { type: 'error', text: `Connection Failed: ${res.error ?? 'unknown error'}` },
-      )
+      const res = await api.post<TestResultDTO>(`/api/storage/destinations/${d.id}/test`, {})
+      setTestMsg({ id: d.id, ok: res.ok, text: res.ok ? 'Connection OK' : `Failed: ${res.error ?? 'unknown'}` })
     } catch (err) {
-      setTestMsg({ type: 'error', text: err instanceof ApiError ? err.message : 'Test failed' })
-    } finally {
-      setBusy(false)
+      setTestMsg({ id: d.id, ok: false, text: err instanceof ApiError ? err.message : 'test failed' })
     }
   }
 
@@ -76,92 +50,97 @@ export default function Settings() {
         </p>
       </div>
 
-      {/* S3 Storage Section */}
+      {/* Storage Destinations Section */}
       <section className="rounded-2xl border border-slate-800 bg-slate-900/80 p-6 shadow-2xl backdrop-blur-md space-y-6">
-        <div className="flex items-center gap-3 border-b border-slate-800 pb-4">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-sky-500/10 text-sky-400 border border-sky-500/20">
-            <Cloud size={20} />
+        <div className="flex items-center justify-between gap-3 border-b border-slate-800 pb-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-sky-500/10 text-sky-400 border border-sky-500/20">
+              <Cloud size={20} />
+            </div>
+            <div>
+              <h2 className="text-base font-bold text-slate-100">Storage Destinations</h2>
+              <p className="text-xs text-slate-400">
+                Manage S3-compatible offsite destinations (AWS S3, MinIO, R2, Spaces). Local disk is always available.
+              </p>
+            </div>
           </div>
-          <div>
-            <h2 className="text-base font-bold text-slate-100">S3-Compatible Remote Storage</h2>
-            <p className="text-xs text-slate-400">
-              Configure AWS S3, MinIO, Cloudflare R2, or DigitalOcean Spaces to enable offsite backup copies.
-            </p>
-          </div>
+          <Button size="sm" onClick={() => setShowAdd(true)} className="shrink-0">
+            <Plus size={14} /> Add Destination
+          </Button>
         </div>
 
-        <form onSubmit={onSave} className="space-y-4">
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field label="Endpoint URL" hint="e.g. http://127.0.0.1:9000 or https://s3.amazonaws.com">
-              <Input
-                value={endpoint}
-                onChange={(e) => setEndpoint(e.target.value)}
-                placeholder="https://s3.us-east-1.amazonaws.com"
-              />
-            </Field>
-            <Field label="Region">
-              <Input value={region} onChange={(e) => setRegion(e.target.value)} placeholder="us-east-1" />
-            </Field>
-            <Field label="Bucket Name">
-              <Input value={bucket} onChange={(e) => setBucket(e.target.value)} placeholder="my-db-backups" />
-            </Field>
-            <Field label="Key Prefix (Optional)">
-              <Input value={prefix} onChange={(e) => setPrefix(e.target.value)} placeholder="ku-dump/production" />
-            </Field>
-            <Field label="Access Key ID">
-              <Input value={accessKey} onChange={(e) => setAccessKey(e.target.value)} placeholder="AKIAIOSFODNN7EXAMPLE" />
-            </Field>
-            <Field label={secretSet ? 'Secret Access Key (Set — leave blank to keep)' : 'Secret Access Key'}>
-              <div className="relative">
-                <Input
-                  type={showSecret ? 'text' : 'password'}
-                  value={secretKey}
-                  onChange={(e) => setSecretKey(e.target.value)}
-                  placeholder={secretSet ? '••••••••••••••••' : 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY'}
-                  className="pr-10"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowSecret(!showSecret)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
-                >
-                  {showSecret ? <EyeOff size={16} /> : <Eye size={16} />}
-                </button>
+        {deleteErr && (
+          <div className="rounded-lg border border-rose-800/60 bg-rose-950/40 p-3 text-xs text-rose-300">{deleteErr}</div>
+        )}
+
+        {dests.isLoading && (
+          <div className="flex justify-center py-6">
+            <Spinner className="h-6 w-6" />
+          </div>
+        )}
+
+        {!dests.isLoading && (dests.data ?? []).length === 0 && (
+          <div className="rounded-xl border border-dashed border-slate-800 bg-slate-950/40 p-8 text-center text-xs text-slate-500">
+            No S3 destinations yet. Add one to store dumps offsite.
+          </div>
+        )}
+
+        <div className="space-y-3">
+          {(dests.data ?? []).map((d) => (
+            <div key={d.id} className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <Cloud size={15} className="shrink-0 text-sky-400" />
+                    <span className="truncate text-sm font-semibold text-slate-100">{d.name}</span>
+                    <Badge tone="slate">{d.kind}</Badge>
+                    {d.secretSet ? (
+                      <Badge tone="green">
+                        <KeyRound size={12} className="inline mr-1" /> secret set
+                      </Badge>
+                    ) : (
+                      <Badge tone="amber">no secret</Badge>
+                    )}
+                  </div>
+                  <div className="mt-1 truncate font-mono text-xs text-slate-400">
+                    {d.endpoint} / {d.bucket}
+                    {d.prefix ? ` (${d.prefix})` : ''}
+                  </div>
+                  <div className="mt-0.5 truncate text-[11px] text-slate-500">AK: {d.accessKey}</div>
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  <Button size="sm" variant="ghost" onClick={() => testDest(d)} title="Test Connection">
+                    {testMsg?.id === d.id && testMsg.text === 'testing…' ? <Spinner className="h-3.5 w-3.5" /> : <CheckCircle2 size={14} />}
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => setEditing(d)} title="Edit Destination">
+                    <Pencil size={14} />
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="hover:text-rose-400"
+                    onClick={() => {
+                      if (confirm(`Delete destination "${d.name}"? Destinations with stored dumps cannot be deleted.`))
+                        remove.mutate(d.id)
+                    }}
+                    title="Delete Destination"
+                  >
+                    <Trash2 size={14} />
+                  </Button>
+                </div>
               </div>
-            </Field>
-          </div>
-
-          {msg && (
-            <div
-              className={`rounded-lg border p-3 text-xs ${
-                msg.type === 'success' ? 'border-emerald-800/60 bg-emerald-950/40 text-emerald-300' : 'border-rose-800/60 bg-rose-950/40 text-rose-300'
-              }`}
-            >
-              {msg.text}
+              {testMsg?.id === d.id && testMsg.text !== 'testing…' && (
+                <div
+                  className={`mt-3 rounded-lg border p-2.5 text-xs ${
+                    testMsg.ok ? 'border-emerald-800/60 bg-emerald-950/40 text-emerald-300' : 'border-rose-800/60 bg-rose-950/40 text-rose-300'
+                  }`}
+                >
+                  {testMsg.text}
+                </div>
+              )}
             </div>
-          )}
-
-          {testMsg && (
-            <div
-              className={`rounded-lg border p-3 text-xs ${
-                testMsg.type === 'success'
-                  ? 'border-emerald-800/60 bg-emerald-950/40 text-emerald-300'
-                  : 'border-rose-800/60 bg-rose-950/40 text-rose-300'
-              }`}
-            >
-              {testMsg.text}
-            </div>
-          )}
-
-          <div className="flex items-center gap-3 pt-2">
-            <Button type="submit" disabled={busy}>
-              {busy ? <Spinner /> : 'Save Storage Settings'}
-            </Button>
-            <Button type="button" variant="outline" onClick={onTest} disabled={busy || !settings.data?.configured}>
-              {busy ? <Spinner /> : 'Test Storage Connection'}
-            </Button>
-          </div>
-        </form>
+          ))}
+        </div>
       </section>
 
       {/* CLI Tools Section */}
@@ -183,6 +162,9 @@ export default function Settings() {
           <ToolRow name="MongoDB Tools" missing={tools.data?.mongodb} pkgs="mongodb-database-tools (mongodump, mongorestore)" />
         </div>
       </section>
+
+      <DestinationModal open={showAdd} onClose={() => setShowAdd(false)} onSaved={invalidate} />
+      <DestinationModal open={editing !== undefined} onClose={() => setEditing(undefined)} dest={editing} onSaved={invalidate} />
     </div>
   )
 }
@@ -213,4 +195,3 @@ function ToolRow({ name, missing, pkgs }: { name: string; missing?: string[]; pk
     </div>
   )
 }
-

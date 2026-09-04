@@ -23,7 +23,8 @@ export interface DumpDTO {
   databaseName: string
   engine: Engine
   label: string
-  storage: 'local' | 's3'
+  destId: string
+  destName: string
   status: DumpStatus
   sizeBytes: number
   sourceDb: string
@@ -40,7 +41,6 @@ export interface JobDTO {
   databaseName: string
   dumpId: string
   dumpLabel: string
-  storage: string | null
   status: JobStatus
   error: string
   logPath: string
@@ -50,14 +50,17 @@ export interface JobDTO {
   logTail?: string
 }
 
-export interface StorageSettingsDTO {
+export interface StorageDestinationDTO {
+  id: string
+  name: string
+  kind: 's3'
   endpoint: string
   region: string
   bucket: string
   prefix: string
   accessKey: string
   secretSet: boolean
-  configured: boolean
+  createdAt: string
 }
 
 export interface ToolsDTO {

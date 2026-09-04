@@ -1,34 +1,39 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 import { Cloud, HardDrive } from 'lucide-react'
 import { api, ApiError } from '../lib/api'
-import type { DatabaseDTO } from '../lib/types'
+import type { DatabaseDTO, StorageDestinationDTO } from '../lib/types'
 import { Button, Field, Input, Modal, Spinner } from '../ui'
 
 export default function DumpModal({
   open,
   onClose,
   db,
-  storageConfigured,
 }: {
   open: boolean
   onClose: () => void
   db: DatabaseDTO
-  storageConfigured: boolean
 }) {
   const [label, setLabel] = useState('')
-  const [storage, setStorage] = useState<'local' | 's3'>('local')
+  const [destId, setDestId] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const navigate = useNavigate()
+
+  const dests = useQuery({
+    queryKey: ['storage-destinations'],
+    queryFn: () => api.get<StorageDestinationDTO[]>('/api/storage/destinations'),
+    enabled: open,
+  })
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
     setError('')
     setBusy(true)
     try {
-      const res = await api.post<{ jobId: string }>(`/api/databases/${db.id}/dump`, { label, storage })
+      const res = await api.post<{ jobId: string }>(`/api/databases/${db.id}/dump`, { label, destId })
       onClose()
       navigate(`/jobs?job=${res.jobId}`)
     } catch (err) {
@@ -51,49 +56,30 @@ export default function DumpModal({
         </Field>
 
         <Field label="Target Destination Storage">
-          <div className="grid grid-cols-2 gap-3 pt-1">
-            <label
-              className={`flex cursor-pointer flex-col rounded-xl border p-4 transition-all ${
-                storage === 'local'
-                  ? 'border-indigo-500 bg-indigo-950/40 text-indigo-200 shadow-md shadow-indigo-600/10'
-                  : 'border-slate-800 bg-slate-950/60 text-slate-400 hover:border-slate-700 hover:text-slate-200'
-              }`}
-              onClick={() => setStorage('local')}
-            >
-              <div className="flex items-center gap-2 font-semibold text-sm">
-                <input type="radio" checked={storage === 'local'} onChange={() => setStorage('local')} className="hidden" />
-                <HardDrive size={18} className={storage === 'local' ? 'text-indigo-400' : 'text-slate-400'} />
-                Local Storage
-              </div>
-              <span className="mt-1 text-[11px] text-slate-500">Save on server disk</span>
-            </label>
-
-            <label
-              className={`flex cursor-pointer flex-col rounded-xl border p-4 transition-all ${
-                !storageConfigured
-                  ? 'cursor-not-allowed border-slate-800/40 bg-slate-950/20 opacity-50 text-slate-600'
-                  : storage === 's3'
-                  ? 'border-indigo-500 bg-indigo-950/40 text-indigo-200 shadow-md shadow-indigo-600/10'
-                  : 'border-slate-800 bg-slate-950/60 text-slate-400 hover:border-slate-700 hover:text-slate-200'
-              }`}
-              onClick={() => storageConfigured && setStorage('s3')}
-            >
-              <div className="flex items-center gap-2 font-semibold text-sm">
-                <input
-                  type="radio"
-                  checked={storage === 's3'}
-                  onChange={() => storageConfigured && setStorage('s3')}
-                  disabled={!storageConfigured}
-                  className="hidden"
-                />
-                <Cloud size={18} className={storage === 's3' ? 'text-indigo-400' : 'text-slate-400'} />
-                S3 Cloud Storage
-              </div>
-              <span className="mt-1 text-[11px] text-slate-500">
-                {storageConfigured ? 'Offsite S3 Bucket' : 'S3 not configured'}
-              </span>
-            </label>
+          <div className="grid gap-3 pt-1 sm:grid-cols-2">
+            <DestCard
+              active={destId === ''}
+              title="Local Storage"
+              subtitle="Save on server disk"
+              icon={<HardDrive size={18} className={destId === '' ? 'text-indigo-400' : 'text-slate-400'} />}
+              onClick={() => setDestId('')}
+            />
+            {(dests.data ?? []).map((d) => (
+              <DestCard
+                key={d.id}
+                active={destId === d.id}
+                title={d.name}
+                subtitle={d.bucket}
+                icon={<Cloud size={18} className={destId === d.id ? 'text-indigo-400' : 'text-slate-400'} />}
+                onClick={() => setDestId(d.id)}
+              />
+            ))}
           </div>
+          {dests.data && dests.data.length === 0 && (
+            <p className="mt-2 text-[11px] text-slate-500">
+              No S3 destinations configured — add one in Settings, or dump to local disk.
+            </p>
+          )}
         </Field>
 
         {error && (
@@ -115,3 +101,34 @@ export default function DumpModal({
   )
 }
 
+function DestCard({
+  active,
+  title,
+  subtitle,
+  icon,
+  onClick,
+}: {
+  active: boolean
+  title: string
+  subtitle: string
+  icon: React.ReactNode
+  onClick: () => void
+}) {
+  return (
+    <label
+      className={`flex cursor-pointer flex-col rounded-xl border p-4 transition-all ${
+        active
+          ? 'border-indigo-500 bg-indigo-950/40 text-indigo-200 shadow-md shadow-indigo-600/10'
+          : 'border-slate-800 bg-slate-950/60 text-slate-400 hover:border-slate-700 hover:text-slate-200'
+      }`}
+      onClick={onClick}
+    >
+      <div className="flex items-center gap-2 font-semibold text-sm">
+        <input type="radio" checked={active} onChange={onClick} className="hidden" />
+        {icon}
+        {title}
+      </div>
+      <span className="mt-1 truncate text-[11px] text-slate-500">{subtitle}</span>
+    </label>
+  )
+}

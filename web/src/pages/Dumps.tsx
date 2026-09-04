@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Archive, Cloud, Download, HardDrive, Play, Search, Trash2 } from 'lucide-react'
 import { api } from '../lib/api'
-import type { DatabaseDTO, DumpDTO, Engine } from '../lib/types'
+import type { DatabaseDTO, DumpDTO, Engine, StorageDestinationDTO } from '../lib/types'
 import { Badge, Button, Input, Select, StatCard } from '../ui'
 import RestoreModal from '../modals/RestoreModal'
 
@@ -28,6 +28,7 @@ export default function Dumps() {
 
   const dumps = useQuery({ queryKey: ['dumps'], queryFn: () => api.get<DumpDTO[]>('/api/dumps'), refetchInterval: 3000 })
   const dbs = useQuery({ queryKey: ['databases'], queryFn: () => api.get<DatabaseDTO[]>('/api/databases') })
+  const dests = useQuery({ queryKey: ['storage-destinations'], queryFn: () => api.get<StorageDestinationDTO[]>('/api/storage/destinations') })
 
   const remove = useMutation({
     mutationFn: (id: string) => api.del(`/api/dumps/${id}`),
@@ -37,13 +38,13 @@ export default function Dumps() {
   const allDumps = dumps.data ?? []
   const totalSizeBytes = allDumps.reduce((acc, d) => acc + (d.sizeBytes || 0), 0)
   const readyCount = allDumps.filter((d) => d.status === 'ready' || d.status === 'uploaded').length
-  const s3Count = allDumps.filter((d) => d.storage === 's3').length
+  const s3Count = allDumps.filter((d) => d.destId !== '').length
 
   const rows = allDumps.filter(
     (d) =>
       (!engineFilter || d.engine === engineFilter) &&
       (!dbFilter || d.databaseId === dbFilter) &&
-      (!storageFilter || d.storage === storageFilter) &&
+      (!storageFilter || (storageFilter === 'local' ? d.destId === '' : d.destId === storageFilter)) &&
       (!search || d.label.toLowerCase().includes(search.toLowerCase()) || (d.databaseName && d.databaseName.toLowerCase().includes(search.toLowerCase()))),
   )
 
@@ -95,7 +96,11 @@ export default function Dumps() {
           <Select value={storageFilter} onChange={(e) => setStorageFilter(e.target.value)} className="w-32 bg-slate-950/80">
             <option value="">All Storage</option>
             <option value="local">Local</option>
-            <option value="s3">S3</option>
+            {(dests.data ?? []).map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.name}
+              </option>
+            ))}
           </Select>
         </div>
       </div>
@@ -128,8 +133,8 @@ export default function Dumps() {
                   </td>
                   <td className="px-5 py-4">
                     <span className="inline-flex items-center gap-1 text-xs font-medium uppercase tracking-wider text-slate-400">
-                      {d.storage === 's3' ? <Cloud size={13} className="text-sky-400" /> : <HardDrive size={13} className="text-slate-400" />}
-                      {d.storage}
+                      {d.destId === '' ? <HardDrive size={13} className="text-slate-400" /> : <Cloud size={13} className="text-sky-400" />}
+                      {d.destName || 'local'}
                     </span>
                   </td>
                   <td className="px-5 py-4 font-mono text-xs text-slate-300">{fmtSize(d.sizeBytes)}</td>
