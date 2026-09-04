@@ -19,6 +19,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -271,6 +272,70 @@ func TestS3RoundTrip(t *testing.T) {
 	}
 }
 
+func postJSON(t *testing.T, client *http.Client, base, path string, body any) (int, []byte) {
+	t.Helper()
+	var rd io.Reader
+	if body != nil {
+		b, _ := json.Marshal(body)
+		rd = bytes.NewReader(b)
+	}
+	req, _ := http.NewRequest("POST", base+path, rd)
+	req.Header.Set("Content-Type", "application/json")
+	res, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	b, _ := io.ReadAll(res.Body)
+	return res.StatusCode, b
+}
+
+func getJSON(t *testing.T, client *http.Client, base, path string) (int, []byte) {
+	t.Helper()
+	res, err := client.Get(base + path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	b, _ := io.ReadAll(res.Body)
+	return res.StatusCode, b
+}
+
+func delJSON(t *testing.T, client *http.Client, base, path string) (int, []byte) {
+	t.Helper()
+	req, _ := http.NewRequest("DELETE", base+path, nil)
+	res, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	b, _ := io.ReadAll(res.Body)
+	return res.StatusCode, b
+}
+
+func waitJobSuccess(t *testing.T, client *http.Client, base, jobID string) {
+	t.Helper()
+	deadline := time.Now().Add(180 * time.Second)
+	for time.Now().Before(deadline) {
+		code, body := getJSON(t, client, base, "/api/jobs/"+jobID)
+		if code == 200 {
+			var j struct {
+				Status string `json:"status"`
+				Error  string `json:"error"`
+			}
+			json.Unmarshal(body, &j)
+			if j.Status == "success" {
+				return
+			}
+			if j.Status == "failed" || j.Status == "cancelled" {
+				t.Fatalf("job %s: %s", j.Status, j.Error)
+			}
+		}
+		time.Sleep(2 * time.Second)
+	}
+	t.Fatal("job did not finish in time")
+}
+
 func TestAPIEndToEnd(t *testing.T) {
 	cx := testCrypt(t)
 	engines := tools(cx)
@@ -281,8 +346,22 @@ func TestAPIEndToEnd(t *testing.T) {
 	}
 	defer st.Close()
 	dumpsDir := filepath.Join(dir, "dumps")
-	newStore := func(kind string) (storage.Store, error) {
-		return storage.NewLocalFS(dumpsDir)
+	newStore := func(ctx context.Context, destID int64) (storage.Store, error) {
+		if destID == 0 {
+			return storage.NewLocalFS(dumpsDir)
+		}
+		d, err := st.GetDestination(ctx, destID)
+		if err != nil {
+			return nil, fmt.Errorf("destination %d not found", destID)
+		}
+		secret, err := cx.Decrypt(d.SecretEnc)
+		if err != nil {
+			return nil, err
+		}
+		return storage.NewS3(storage.S3Config{
+			Endpoint: d.Endpoint, Region: d.Region, Bucket: d.Bucket,
+			Prefix: d.Prefix, AccessKey: d.AccessKey, SecretKey: secret,
+		})
 	}
 	run, err := runner.New(st, engines, newStore, filepath.Join(dumpsDir, "_logs"))
 	if err != nil {
@@ -297,41 +376,14 @@ func TestAPIEndToEnd(t *testing.T) {
 
 	jar, _ := cookiejar.New(nil)
 	client := &http.Client{Jar: jar, Timeout: 15 * time.Second}
-	post := func(path string, body any) (int, []byte) {
-		t.Helper()
-		var rd io.Reader
-		if body != nil {
-			b, _ := json.Marshal(body)
-			rd = bytes.NewReader(b)
-		}
-		req, _ := http.NewRequest("POST", srv.URL+path, rd)
-		req.Header.Set("Content-Type", "application/json")
-		res, err := client.Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer res.Body.Close()
-		b, _ := io.ReadAll(res.Body)
-		return res.StatusCode, b
-	}
-	get := func(path string) (int, []byte) {
-		t.Helper()
-		res, err := client.Get(srv.URL + path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer res.Body.Close()
-		b, _ := io.ReadAll(res.Body)
-		return res.StatusCode, b
-	}
 
-	if code, _ := get("/api/auth/status"); code != 200 {
+	if code, _ := getJSON(t, client, srv.URL, "/api/auth/status"); code != 200 {
 		t.Fatalf("status = %d", code)
 	}
-	if code, _ := post("/api/auth/setup", map[string]string{"username": "admin", "password": "password123"}); code != 201 {
+	if code, _ := postJSON(t, client, srv.URL, "/api/auth/setup", map[string]string{"username": "admin", "password": "password123"}); code != 201 {
 		t.Fatal("setup failed")
 	}
-	if code, _ := post("/api/auth/login", map[string]string{"username": "admin", "password": "password123"}); code != 200 {
+	if code, _ := postJSON(t, client, srv.URL, "/api/auth/login", map[string]string{"username": "admin", "password": "password123"}); code != 200 {
 		t.Fatal("login failed")
 	}
 
@@ -353,14 +405,14 @@ func TestAPIEndToEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	code, body := post("/api/databases", map[string]any{
+	code, body := postJSON(t, client, srv.URL, "/api/databases", map[string]any{
 		"name": "api-src", "engine": "postgres", "host": pgHost, "port": pgPort,
 		"dbName": "ku_api_src", "username": "postgres", "password": "postgres",
 	})
 	if code != 201 {
 		t.Fatalf("register src = %d: %s", code, body)
 	}
-	code, body = post("/api/databases", map[string]any{
+	code, body = postJSON(t, client, srv.URL, "/api/databases", map[string]any{
 		"name": "api-dst", "engine": "postgres", "host": pgHost, "port": pgPort,
 		"dbName": "ku_api_dst", "username": "postgres", "password": "postgres",
 	})
@@ -368,12 +420,12 @@ func TestAPIEndToEnd(t *testing.T) {
 		t.Fatalf("register dst = %d: %s", code, body)
 	}
 
-	code, body = post("/api/databases/MTIz/dump", map[string]string{"label": "e2e", "storage": "local"})
+	code, body = postJSON(t, client, srv.URL, "/api/databases/MTIz/dump", map[string]string{"label": "e2e", "destId": ""})
 	if code == 201 {
 		t.Fatal("opaque id guessing must not pass")
 	}
 	var dbs []map[string]any
-	code, body = get("/api/databases")
+	code, body = getJSON(t, client, srv.URL, "/api/databases")
 	json.Unmarshal(body, &dbs)
 	var srcID, dstID string
 	for _, db := range dbs {
@@ -384,7 +436,7 @@ func TestAPIEndToEnd(t *testing.T) {
 			dstID = db["id"].(string)
 		}
 	}
-	code, body = post(fmt.Sprintf("/api/databases/%s/dump", srcID), map[string]string{"label": "e2e", "storage": "local"})
+	code, body = postJSON(t, client, srv.URL, fmt.Sprintf("/api/databases/%s/dump", srcID), map[string]string{"label": "e2e", "destId": ""})
 	if code != 201 {
 		t.Fatalf("dump = %d: %s", code, body)
 	}
@@ -393,32 +445,9 @@ func TestAPIEndToEnd(t *testing.T) {
 		DumpID string `json:"dumpId"`
 	}
 	json.Unmarshal(body, &dumpRes)
+	waitJobSuccess(t, client, srv.URL, dumpRes.JobID)
 
-	deadline := time.Now().Add(180 * time.Second)
-	jobDone := false
-	for time.Now().Before(deadline) {
-		code, body = get("/api/jobs/" + dumpRes.JobID)
-		if code == 200 {
-			var j struct {
-				Status string `json:"status"`
-				Error  string `json:"error"`
-			}
-			json.Unmarshal(body, &j)
-			if j.Status == "success" {
-				jobDone = true
-				break
-			}
-			if j.Status == "failed" || j.Status == "cancelled" {
-				t.Fatalf("dump job %s: %s", j.Status, j.Error)
-			}
-		}
-		time.Sleep(2 * time.Second)
-	}
-	if !jobDone {
-		t.Fatal("dump job did not finish")
-	}
-
-	code, body = get("/api/dumps")
+	code, body = getJSON(t, client, srv.URL, "/api/dumps")
 	var dumps []map[string]any
 	json.Unmarshal(body, &dumps)
 	var dumpID string
@@ -431,7 +460,7 @@ func TestAPIEndToEnd(t *testing.T) {
 		t.Fatal("dump not listed")
 	}
 
-	code, body = post("/api/restores", map[string]string{
+	code, body = postJSON(t, client, srv.URL, "/api/restores", map[string]string{
 		"dumpId": dumpID, "targetDatabaseId": dstID, "confirmName": "api-dst",
 	})
 	if code != 201 {
@@ -441,23 +470,7 @@ func TestAPIEndToEnd(t *testing.T) {
 		JobID string `json:"jobId"`
 	}
 	json.Unmarshal(body, &restoreRes)
-	for time.Now().Before(deadline) {
-		code, body = get("/api/jobs/" + restoreRes.JobID)
-		if code == 200 {
-			var j struct {
-				Status string `json:"status"`
-				Error  string `json:"error"`
-			}
-			json.Unmarshal(body, &j)
-			if j.Status == "success" {
-				break
-			}
-			if j.Status == "failed" || j.Status == "cancelled" {
-				t.Fatalf("restore job %s: %s", j.Status, j.Error)
-			}
-		}
-		time.Sleep(2 * time.Second)
-	}
+	waitJobSuccess(t, client, srv.URL, restoreRes.JobID)
 
 	dstConn, err := pgx.Connect(context.Background(), fmt.Sprintf("postgres://postgres:postgres@%s:%d/ku_api_dst?sslmode=disable", pgHost, pgPort))
 	if err != nil {
@@ -470,5 +483,196 @@ func TestAPIEndToEnd(t *testing.T) {
 	}
 	if count != 2 {
 		t.Fatalf("count = %d, want 2", count)
+	}
+}
+
+func TestAPIS3DestinationLifecycle(t *testing.T) {
+	cx := testCrypt(t)
+	engines := tools(cx)
+	dir := t.TempDir()
+	st, err := meta.Open(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if _, err := st.MigrateLegacyS3(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	dumpsDir := filepath.Join(dir, "dumps")
+	newStore := func(ctx context.Context, destID int64) (storage.Store, error) {
+		if destID == 0 {
+			return storage.NewLocalFS(dumpsDir)
+		}
+		d, err := st.GetDestination(ctx, destID)
+		if err != nil {
+			return nil, fmt.Errorf("destination %d not found", destID)
+		}
+		secret, err := cx.Decrypt(d.SecretEnc)
+		if err != nil {
+			return nil, err
+		}
+		return storage.NewS3(storage.S3Config{
+			Endpoint: d.Endpoint, Region: d.Region, Bucket: d.Bucket,
+			Prefix: d.Prefix, AccessKey: d.AccessKey, SecretKey: secret,
+		})
+	}
+	run, err := runner.New(st, engines, newStore, filepath.Join(dumpsDir, "_logs"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := api.NewServer(api.Deps{
+		Store: st, Crypt: cx, Runner: run, Engines: engines, NewStore: newStore,
+		Sessions: api.NewSessions([]byte("it-secret")), Limiter: api.NewRateLimiter(),
+	})
+	srv := httptest.NewServer(handler)
+	defer srv.Close()
+
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar, Timeout: 15 * time.Second}
+
+	cli, err := minio.New("127.0.0.1:9000", &minio.Options{
+		Creds:  credentials.NewStaticV4("minioadmin", "minioadmin", ""),
+		Secure: false,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	bucket := "ku-dump-api"
+	ok, err := cli.BucketExists(ctx, bucket)
+	if err != nil {
+		t.Skipf("minio not available: %v", err)
+	}
+	if !ok {
+		if err := cli.MakeBucket(ctx, bucket, minio.MakeBucketOptions{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if code, _ := postJSON(t, client, srv.URL, "/api/auth/setup", map[string]string{"username": "admin", "password": "password123"}); code != 201 {
+		t.Fatal("setup failed")
+	}
+	if code, _ := postJSON(t, client, srv.URL, "/api/auth/login", map[string]string{"username": "admin", "password": "password123"}); code != 200 {
+		t.Fatal("login failed")
+	}
+
+	admin := adminConn(t)
+	for _, db := range []string{"ku_api_s3src", "ku_api_s3dst"} {
+		var dropped string
+		_ = admin.QueryRow(ctx, fmt.Sprintf("DROP DATABASE IF EXISTS %s WITH (FORCE)", db)).Scan(&dropped)
+		if _, err := admin.Exec(ctx, "CREATE DATABASE "+db); err != nil {
+			t.Fatal(err)
+		}
+	}
+	srcConn, err := pgx.Connect(ctx, fmt.Sprintf("postgres://postgres:postgres@%s:%d/ku_api_s3src?sslmode=disable", pgHost, pgPort))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer srcConn.Close(ctx)
+	if _, err := srcConn.Exec(ctx, `CREATE TABLE t (id serial PRIMARY KEY, v text);
+		INSERT INTO t (v) VALUES ('one'), ('two')`); err != nil {
+		t.Fatal(err)
+	}
+
+	code, body := postJSON(t, client, srv.URL, "/api/storage/destinations", map[string]any{
+		"name": "it-minio", "endpoint": "http://127.0.0.1:9000", "region": "us-east-1",
+		"bucket": bucket, "prefix": "it", "accessKey": "minioadmin", "secretKey": "minioadmin",
+	})
+	if code != 201 {
+		t.Fatalf("create dest = %d: %s", code, body)
+	}
+	var dest struct {
+		ID string `json:"id"`
+	}
+	json.Unmarshal(body, &dest)
+	if dest.ID == "" {
+		t.Fatal("dest id empty")
+	}
+
+	for _, db := range []map[string]any{
+		{"name": "api-s3-src", "engine": "postgres", "host": pgHost, "port": pgPort,
+			"dbName": "ku_api_s3src", "username": "postgres", "password": "postgres"},
+		{"name": "api-s3-dst", "engine": "postgres", "host": pgHost, "port": pgPort,
+			"dbName": "ku_api_s3dst", "username": "postgres", "password": "postgres"},
+	} {
+		if c, b := postJSON(t, client, srv.URL, "/api/databases", db); c != 201 {
+			t.Fatalf("register %v = %d: %s", db["name"], c, b)
+		}
+	}
+	_, body = getJSON(t, client, srv.URL, "/api/databases")
+	var dbs []map[string]any
+	json.Unmarshal(body, &dbs)
+	var srcID, dstID string
+	for _, db := range dbs {
+		if db["name"] == "api-s3-src" {
+			srcID = db["id"].(string)
+		}
+		if db["name"] == "api-s3-dst" {
+			dstID = db["id"].(string)
+		}
+	}
+
+	code, body = postJSON(t, client, srv.URL, fmt.Sprintf("/api/databases/%s/dump", srcID), map[string]string{"label": "s3e2e", "destId": dest.ID})
+	if code != 201 {
+		t.Fatalf("dump = %d: %s", code, body)
+	}
+	var dumpRes struct {
+		JobID  string `json:"jobId"`
+		DumpID string `json:"dumpId"`
+	}
+	json.Unmarshal(body, &dumpRes)
+	waitJobSuccess(t, client, srv.URL, dumpRes.JobID)
+
+	code, body = getJSON(t, client, srv.URL, "/api/dumps")
+	var dumps []map[string]any
+	json.Unmarshal(body, &dumps)
+	var dumpID string
+	for _, d := range dumps {
+		if d["label"] == "s3e2e" {
+			dumpID = d["id"].(string)
+			if d["destName"] != "it-minio" {
+				t.Fatalf("destName = %v", d["destName"])
+			}
+		}
+	}
+	if dumpID == "" {
+		t.Fatal("s3 dump not listed")
+	}
+
+	code, body = delJSON(t, client, srv.URL, "/api/storage/destinations/"+dest.ID)
+	if code != 409 {
+		t.Fatalf("delete in-use dest = %d: %s", code, body)
+	}
+
+	code, body = postJSON(t, client, srv.URL, "/api/restores", map[string]string{
+		"dumpId": dumpID, "targetDatabaseId": dstID, "confirmName": "api-s3-dst",
+	})
+	if code != 201 {
+		t.Fatalf("restore = %d: %s", code, body)
+	}
+	var restoreRes struct {
+		JobID string `json:"jobId"`
+	}
+	json.Unmarshal(body, &restoreRes)
+	waitJobSuccess(t, client, srv.URL, restoreRes.JobID)
+
+	dstConn, err := pgx.Connect(ctx, fmt.Sprintf("postgres://postgres:postgres@%s:%d/ku_api_s3dst?sslmode=disable", pgHost, pgPort))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dstConn.Close(ctx)
+	var count int
+	if err := dstConn.QueryRow(ctx, `SELECT COUNT(*) FROM t`).Scan(&count); err != nil {
+		t.Fatalf("query restored table: %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("count = %d, want 2", count)
+	}
+
+	if code, _ := delJSON(t, client, srv.URL, "/api/dumps/"+dumpID); code != 200 {
+		t.Fatalf("delete dump = %d", code)
+	}
+	if code, _ := delJSON(t, client, srv.URL, "/api/storage/destinations/"+dest.ID); code != 200 {
+		t.Fatalf("delete dest after dump gone = %d", code)
 	}
 }

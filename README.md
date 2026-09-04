@@ -42,11 +42,18 @@ Dump, and watch the job log live.
 
 - **Databases** — register/edit/test databases. Dump and Restore are
   disabled while another job is running on the same database.
-- **Dumps** — history with download/delete. Upload a file dump
-  (`pg_dump -Fc` or gzipped mongo archive) to restore it.
+- **Dumps** — history with download/delete, grouped by storage
+  destination. Upload a file dump (`pg_dump -Fc` or gzipped mongo
+  archive) to restore it.
 - **Jobs** — live log tail, cancel while running.
-- **Settings** — S3-compatible storage (endpoint/bucket/credentials,
-  MinIO works) and CLI tool availability.
+- **Settings** — storage destinations: register any number of
+  S3-compatible buckets (endpoint/bucket/credentials, MinIO works);
+  local disk is always available. Plus CLI tool availability.
+
+When dumping you pick the database and the destination to store it in.
+When restoring you pick any dump from history — regardless of where it
+is stored — and any registered target database of the same engine; it
+does not have to be the database the dump came from.
 
 Restores are destructive: target objects are dropped first
 (`pg_restore --clean --if-exists`, `mongorestore --drop`). The UI and the
@@ -60,6 +67,7 @@ API both require typing the target database name to confirm.
 
 ## Security notes
 
-- Database passwords and the S3 secret are encrypted at rest (AES-256-GCM)
+- Database passwords and S3 destination secrets are encrypted at rest
+  (AES-256-GCM)
 - HMAC-signed session cookies, login rate limiting (5 failures / 15 min)
 - External IDs are opaque; uploads are size-capped and magic-byte checked
