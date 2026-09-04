@@ -18,7 +18,7 @@ import (
 type Runner struct {
 	st       *meta.Store
 	engines  map[string]engine.Engine
-	newStore func(kind string) (storage.Store, error)
+	newStore func(ctx context.Context, destID int64) (storage.Store, error)
 	logsDir  string
 	mu       sync.Mutex
 	cancels  map[int64]context.CancelFunc
@@ -26,7 +26,7 @@ type Runner struct {
 }
 
 func New(st *meta.Store, engines map[string]engine.Engine,
-	newStore func(kind string) (storage.Store, error), logsDir string) (*Runner, error) {
+	newStore func(ctx context.Context, destID int64) (storage.Store, error), logsDir string) (*Runner, error) {
 	if err := os.MkdirAll(logsDir, 0o755); err != nil {
 		return nil, err
 	}
@@ -135,6 +135,10 @@ func (r *Runner) run(jobID int64) {
 }
 
 func (r *Runner) runDump(ctx context.Context, job *meta.Job, db *meta.Database, eng engine.Engine, log io.Writer) (err error) {
+	dump, err := r.st.GetDump(ctx, *job.DumpID)
+	if err != nil {
+		return err
+	}
 	tmp, err := os.CreateTemp("", "kudump-*.dump")
 	if err != nil {
 		return err
@@ -152,7 +156,7 @@ func (r *Runner) runDump(ctx context.Context, job *meta.Job, db *meta.Database, 
 	if err = tmp.Close(); err != nil {
 		return err
 	}
-	store, err := r.storeFor(job.Storage)
+	store, err := r.newStore(ctx, dump.DestID)
 	if err != nil {
 		return err
 	}
@@ -173,7 +177,7 @@ func (r *Runner) runRestore(ctx context.Context, job *meta.Job, db *meta.Databas
 	if err != nil {
 		return err
 	}
-	store, err := r.storeFor(&dump.Storage)
+	store, err := r.newStore(ctx, dump.DestID)
 	if err != nil {
 		return err
 	}
@@ -183,13 +187,6 @@ func (r *Runner) runRestore(ctx context.Context, job *meta.Job, db *meta.Databas
 	}
 	defer rc.Close()
 	return eng.Restore(ctx, *db, dump.SourceDB, rc, log)
-}
-
-func (r *Runner) storeFor(kind *string) (storage.Store, error) {
-	if kind == nil || *kind == "" {
-		return nil, fmt.Errorf("no storage selected for job")
-	}
-	return r.newStore(*kind)
 }
 
 func TailFile(path string, maxBytes int64) string {

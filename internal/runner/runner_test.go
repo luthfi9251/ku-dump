@@ -68,9 +68,9 @@ func setup(t *testing.T, eng engine.Engine) (*Runner, *meta.Store, string) {
 	}
 	t.Cleanup(func() { st.Close() })
 	dumpsDir := filepath.Join(dir, "dumps")
-	newStore := func(kind string) (storage.Store, error) {
-		if kind != "local" {
-			return nil, fmt.Errorf("storage %q not configured", kind)
+	newStore := func(ctx context.Context, destID int64) (storage.Store, error) {
+		if destID != 0 {
+			return nil, fmt.Errorf("storage destination %d not configured", destID)
 		}
 		return storage.NewLocalFS(dumpsDir)
 	}
@@ -93,8 +93,7 @@ func seedDumpJob(t *testing.T, st *meta.Store) (dbID, dumpID, jobID int64) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	storageKind := "local"
-	jobID, err = st.CreateJob(ctx, &meta.Job{Type: "dump", DatabaseID: dbID, DumpID: &dumpID, Storage: &storageKind})
+	jobID, err = st.CreateJob(ctx, &meta.Job{Type: "dump", DatabaseID: dbID, DumpID: &dumpID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -226,12 +225,11 @@ func TestDumpJobFailureAfterDumpMarksDumpFailed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	dumpID, err := st.CreateDump(ctx, &meta.Dump{DatabaseID: dbID, Engine: "postgres", Label: "l", Storage: "s3", SourceDB: "appdb", Status: "pending", CreatedBy: 1})
+	dumpID, err := st.CreateDump(ctx, &meta.Dump{DatabaseID: dbID, Engine: "postgres", Label: "l", Storage: "s3", DestID: 99, SourceDB: "appdb", Status: "pending", CreatedBy: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
-	storageKind := "s3"
-	jobID, err := st.CreateJob(ctx, &meta.Job{Type: "dump", DatabaseID: dbID, DumpID: &dumpID, Storage: &storageKind})
+	jobID, err := st.CreateJob(ctx, &meta.Job{Type: "dump", DatabaseID: dbID, DumpID: &dumpID})
 	if err != nil {
 		t.Fatal(err)
 	}
