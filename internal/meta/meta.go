@@ -91,7 +91,23 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	if err := ensureColumn(db, "dumps", "dest_id", `ALTER TABLE dumps ADD COLUMN dest_id INTEGER NOT NULL DEFAULT 0`); err != nil {
+		db.Close()
+		return nil, err
+	}
 	return &Store{db: db}, nil
+}
+
+func ensureColumn(db *sql.DB, table, column, ddl string) error {
+	var n int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?`, table, column).Scan(&n); err != nil {
+		return err
+	}
+	if n == 0 {
+		_, err := db.Exec(ddl)
+		return err
+	}
+	return nil
 }
 
 func (s *Store) Close() error { return s.db.Close() }

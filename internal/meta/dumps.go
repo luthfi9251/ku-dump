@@ -11,6 +11,7 @@ type Dump struct {
 	Engine     string
 	Label      string
 	Storage    string
+	DestID     int64
 	Location   string
 	SourceDB   string
 	SizeBytes  int64
@@ -22,15 +23,16 @@ type Dump struct {
 type DumpRow struct {
 	Dump
 	DatabaseName string
+	DestName     string
 }
 
-const dumpCols = `id, database_id, engine, label, storage, location, source_db, size_bytes, status, created_by, created_at`
+const dumpCols = `id, database_id, engine, label, storage, location, source_db, size_bytes, status, created_by, created_at, dest_id`
 
 func scanDump(row rowScanner) (*Dump, error) {
 	var d Dump
 	var created string
 	err := row.Scan(&d.ID, &d.DatabaseID, &d.Engine, &d.Label, &d.Storage, &d.Location,
-		&d.SourceDB, &d.SizeBytes, &d.Status, &d.CreatedBy, &created)
+		&d.SourceDB, &d.SizeBytes, &d.Status, &d.CreatedBy, &created, &d.DestID)
 	if err != nil {
 		return nil, err
 	}
@@ -40,9 +42,9 @@ func scanDump(row rowScanner) (*Dump, error) {
 
 func (s *Store) CreateDump(ctx context.Context, d *Dump) (int64, error) {
 	res, err := s.db.ExecContext(ctx, `INSERT INTO dumps
-		(database_id, engine, label, storage, location, source_db, size_bytes, status, created_by)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		d.DatabaseID, d.Engine, d.Label, d.Storage, d.Location, d.SourceDB, d.SizeBytes, d.Status, d.CreatedBy)
+		(database_id, engine, label, storage, dest_id, location, source_db, size_bytes, status, created_by)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		d.DatabaseID, d.Engine, d.Label, d.Storage, d.DestID, d.Location, d.SourceDB, d.SizeBytes, d.Status, d.CreatedBy)
 	if err != nil {
 		return 0, err
 	}
@@ -56,8 +58,12 @@ func (s *Store) GetDump(ctx context.Context, id int64) (*Dump, error) {
 
 func (s *Store) ListDumps(ctx context.Context) ([]DumpRow, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT d.id, d.database_id, d.engine, d.label, d.storage, d.location,
-		d.source_db, d.size_bytes, d.status, d.created_by, d.created_at, IFNULL(db.name, '')
-		FROM dumps d LEFT JOIN databases db ON db.id = d.database_id
+		d.source_db, d.size_bytes, d.status, d.created_by, d.created_at, d.dest_id,
+		IFNULL(db.name, ''),
+		CASE WHEN d.dest_id = 0 THEN 'local' ELSE IFNULL(sd.name, '') END
+		FROM dumps d
+		LEFT JOIN databases db ON db.id = d.database_id
+		LEFT JOIN storage_destinations sd ON sd.id = d.dest_id
 		ORDER BY d.id DESC`)
 	if err != nil {
 		return nil, err
@@ -68,7 +74,8 @@ func (s *Store) ListDumps(ctx context.Context) ([]DumpRow, error) {
 		var r DumpRow
 		var created string
 		err := rows.Scan(&r.ID, &r.DatabaseID, &r.Engine, &r.Label, &r.Storage, &r.Location,
-			&r.SourceDB, &r.SizeBytes, &r.Status, &r.CreatedBy, &created, &r.DatabaseName)
+			&r.SourceDB, &r.SizeBytes, &r.Status, &r.CreatedBy, &created, &r.DestID,
+			&r.DatabaseName, &r.DestName)
 		if err != nil {
 			return nil, err
 		}

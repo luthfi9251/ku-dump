@@ -82,3 +82,9 @@ func (s *Store) DeleteDestination(ctx context.Context, id int64) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM storage_destinations WHERE id = ?`, id)
 	return err
 }
+
+func (s *Store) CountDumpsForDestination(ctx context.Context, id int64) (int64, error) {
+	var n int64
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM dumps WHERE dest_id = ?`, id).Scan(&n)
+	return n, err
+}

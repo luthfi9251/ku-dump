@@ -33,6 +33,39 @@ func TestDumpLifecycle(t *testing.T) {
 	}
 }
 
+func TestDumpDestinationJoin(t *testing.T) {
+	st := testStore(t)
+	ctx := context.Background()
+	db := sampleDB()
+	dbID, _ := st.CreateDatabase(ctx, &db)
+	destID, err := st.CreateDestination(ctx, &Destination{Name: "minio", Kind: "s3",
+		Endpoint: "http://e", Bucket: "b", AccessKey: "a", SecretEnc: "s"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.CreateDump(ctx, &Dump{DatabaseID: dbID, Engine: "postgres", Label: "loc",
+		Storage: "local", Status: "ready", CreatedBy: 1})
+	st.CreateDump(ctx, &Dump{DatabaseID: dbID, Engine: "postgres", Label: "s3dump",
+		Storage: "s3", DestID: destID, Status: "ready", CreatedBy: 1})
+	rows, err := st.ListDumps(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("len = %d", len(rows))
+	}
+	if rows[0].Label != "s3dump" || rows[0].DestID != destID || rows[0].DestName != "minio" {
+		t.Fatalf("rows[0] = %+v", rows[0])
+	}
+	if rows[1].DestID != 0 || rows[1].DestName != "local" {
+		t.Fatalf("rows[1] = %+v", rows[1])
+	}
+	n, err := st.CountDumpsForDestination(ctx, destID)
+	if err != nil || n != 1 {
+		t.Fatalf("count = %d, %v", n, err)
+	}
+}
+
 func TestFailPendingDumps(t *testing.T) {
 	st := testStore(t)
 	ctx := context.Background()
