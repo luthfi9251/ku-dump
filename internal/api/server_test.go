@@ -8,7 +8,9 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -46,6 +48,43 @@ type fakeMongo struct{ fakeEngine }
 
 func (fakeMongo) Name() string { return "mongodb" }
 
+type memStore struct {
+	mu  sync.Mutex
+	obj map[string][]byte
+}
+
+func newMemStore() *memStore { return &memStore{obj: map[string][]byte{}} }
+
+func (m *memStore) Kind() string { return "s3" }
+
+func (m *memStore) Put(_ context.Context, key, localPath string) error {
+	b, err := os.ReadFile(localPath)
+	if err != nil {
+		return err
+	}
+	m.mu.Lock()
+	m.obj[key] = b
+	m.mu.Unlock()
+	return nil
+}
+
+func (m *memStore) Open(_ context.Context, key string) (io.ReadCloser, error) {
+	m.mu.Lock()
+	b, ok := m.obj[key]
+	m.mu.Unlock()
+	if !ok {
+		return nil, fmt.Errorf("object not found: %s", key)
+	}
+	return io.NopCloser(bytes.NewReader(b)), nil
+}
+
+func (m *memStore) Delete(_ context.Context, key string) error {
+	m.mu.Lock()
+	delete(m.obj, key)
+	m.mu.Unlock()
+	return nil
+}
+
 func newTestServer(t *testing.T) http.Handler {
 	t.Helper()
 	dir := t.TempDir()
@@ -58,19 +97,11 @@ func newTestServer(t *testing.T) http.Handler {
 	if err != nil {
 		t.Fatal(err)
 	}
-	newStore := func(kind string) (storage.Store, error) {
-		if kind == "local" {
+	newStore := func(ctx context.Context, destID int64) (storage.Store, error) {
+		if destID == 0 {
 			return storage.NewLocalFS(filepath.Join(dir, "dumps"))
 		}
-		if kind == "s3" {
-			srv := &Server{Deps: Deps{Store: st, Crypt: cx}}
-			cfg, configured := srv.s3Config(context.Background())
-			if !configured {
-				return nil, fmt.Errorf("s3 storage not configured")
-			}
-			return storage.NewS3(cfg)
-		}
-		return nil, fmt.Errorf("unknown storage %q", kind)
+		return newMemStore(), nil
 	}
 	engines := map[string]engine.Engine{"postgres": fakeEngine{}, "mongodb": fakeMongo{}}
 	run, err := runner.New(st, engines, newStore, filepath.Join(dir, "dumps", "_logs"))

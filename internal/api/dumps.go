@@ -18,7 +18,8 @@ type dumpDTO struct {
 	DatabaseName string `json:"databaseName"`
 	Engine       string `json:"engine"`
 	Label        string `json:"label"`
-	Storage      string `json:"storage"`
+	DestID       string `json:"destId"`
+	DestName     string `json:"destName"`
 	Status       string `json:"status"`
 	SizeBytes    int64  `json:"sizeBytes"`
 	SourceDB     string `json:"sourceDb"`
@@ -40,7 +41,8 @@ func dumpToDTO(r meta.DumpRow) dumpDTO {
 		DatabaseName: r.DatabaseName,
 		Engine:       r.Engine,
 		Label:        r.Label,
-		Storage:      r.Storage,
+		DestID:       encIDOrEmpty(r.DestID),
+		DestName:     r.DestName,
 		Status:       r.Status,
 		SizeBytes:    r.SizeBytes,
 		SourceDB:     r.SourceDB,
@@ -61,18 +63,30 @@ func (s *Server) handleCreateDump(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Label   string `json:"label"`
-		Storage string `json:"storage"`
+		Label  string `json:"label"`
+		DestID string `json:"destId"`
 	}
 	if !decodeBody(w, r, &req) {
 		return
 	}
-	if req.Storage != "local" && req.Storage != "s3" {
-		fail(w, http.StatusBadRequest, "VALIDATION", "storage must be local or s3")
-		return
+	destID := int64(0)
+	storageKind := "local"
+	if req.DestID != "" {
+		var err error
+		destID, err = decID(req.DestID)
+		if err != nil {
+			fail(w, http.StatusBadRequest, "VALIDATION", "invalid destId")
+			return
+		}
+		dest, err := s.Store.GetDestination(r.Context(), destID)
+		if err != nil {
+			fail(w, http.StatusBadRequest, "STORAGE_NOT_CONFIGURED", "storage destination not found")
+			return
+		}
+		storageKind = dest.Kind
 	}
-	if _, err := s.NewStore(req.Storage); err != nil {
-		fail(w, http.StatusBadRequest, "STORAGE_NOT_CONFIGURED", "selected storage is not configured: "+err.Error())
+	if _, err := s.NewStore(r.Context(), destID); err != nil {
+		fail(w, http.StatusBadRequest, "STORAGE_NOT_CONFIGURED", "selected storage is not available: "+err.Error())
 		return
 	}
 	eng := s.Engines[db.Engine]
@@ -85,17 +99,16 @@ func (s *Server) handleCreateDump(w http.ResponseWriter, r *http.Request) {
 		label = db.Name + " " + time.Now().Format("2006-01-02 15:04")
 	}
 	dumpID, err := s.Store.CreateDump(r.Context(), &meta.Dump{
-		DatabaseID: db.ID, Engine: db.Engine, Label: label, Storage: req.Storage,
-		SourceDB: db.DBName, Status: "pending", CreatedBy: userID(r),
+		DatabaseID: db.ID, Engine: db.Engine, Label: label, Storage: storageKind,
+		DestID: destID, SourceDB: db.DBName, Status: "pending", CreatedBy: userID(r),
 	})
 	if err != nil {
 		log.Printf("create dump: %v", err)
 		fail(w, http.StatusInternalServerError, "INTERNAL", "internal error")
 		return
 	}
-	storage := req.Storage
 	jobID, err := s.Store.CreateJobGuarded(r.Context(), &meta.Job{
-		Type: "dump", DatabaseID: db.ID, DumpID: &dumpID, Storage: &storage,
+		Type: "dump", DatabaseID: db.ID, DumpID: &dumpID,
 	})
 	if err != nil {
 		if errors.Is(err, meta.ErrJobActive) {
@@ -146,9 +159,9 @@ func (s *Server) handleDownloadDump(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusConflict, "NOT_READY", "dump is not ready for download")
 		return
 	}
-	store, err := s.NewStore(dump.Storage)
+	store, err := s.NewStore(r.Context(), dump.DestID)
 	if err != nil {
-		log.Printf("open storage %s: %v", dump.Storage, err)
+		log.Printf("open storage %d: %v", dump.DestID, err)
 		fail(w, http.StatusInternalServerError, "INTERNAL", "internal error")
 		return
 	}
@@ -173,7 +186,7 @@ func (s *Server) handleDeleteDump(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusConflict, "NOT_READY", "dump is still in progress")
 		return
 	}
-	if store, err := s.NewStore(dump.Storage); err == nil {
+	if store, err := s.NewStore(r.Context(), dump.DestID); err == nil {
 		_ = store.Delete(r.Context(), dump.Location)
 	}
 	if err := s.Store.DeleteDump(r.Context(), dump.ID); err != nil {

@@ -58,19 +58,28 @@ func main() {
 	}
 
 	engines := engine.BuildEngines(cfg.Tools, cx)
-	newStore := func(kind string) (storage.Store, error) {
-		switch kind {
-		case "local":
+	newStore := func(ctx context.Context, destID int64) (storage.Store, error) {
+		if destID == 0 {
 			return storage.NewLocalFS(cfg.DumpsDir)
-		case "s3":
-			srv := &api.Server{Deps: api.Deps{Store: st, Crypt: cx}}
-			s3cfg, configured := srv.S3ConfigPublic(ctx)
-			if !configured {
-				return nil, fmt.Errorf("s3 storage not configured")
-			}
-			return storage.NewS3(s3cfg)
 		}
-		return nil, fmt.Errorf("unknown storage %q", kind)
+		d, err := st.GetDestination(ctx, destID)
+		if err != nil {
+			return nil, fmt.Errorf("storage destination %d not found", destID)
+		}
+		secret, err := cx.Decrypt(d.SecretEnc)
+		if err != nil {
+			return nil, fmt.Errorf("decrypt destination secret: %w", err)
+		}
+		return storage.NewS3(storage.S3Config{
+			Endpoint: d.Endpoint, Region: d.Region, Bucket: d.Bucket,
+			Prefix: d.Prefix, AccessKey: d.AccessKey, SecretKey: secret,
+		})
+	}
+
+	if migrated, err := st.MigrateLegacyS3(ctx); err != nil {
+		log.Fatal(err)
+	} else if migrated {
+		log.Printf("migrated legacy S3 settings into storage destination")
 	}
 
 	run, err := runner.New(st, engines, newStore, filepath.Join(cfg.DumpsDir, "_logs"))

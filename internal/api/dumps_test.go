@@ -47,7 +47,7 @@ func TestDumpFlow(t *testing.T) {
 	cookie := setupAndLogin(t, h)
 	db := createDatabase(t, h, cookie)
 	rec := doJSON(t, h, "POST", "/api/databases/"+db.ID+"/dump",
-		map[string]string{"label": "nightly", "storage": "local"}, cookie)
+		map[string]string{"label": "nightly", "destId": ""}, cookie)
 	if rec.Code != 201 {
 		t.Fatalf("dump = %d: %s", rec.Code, rec.Body.String())
 	}
@@ -59,6 +59,9 @@ func TestDumpFlow(t *testing.T) {
 	d := waitDumpReady(t, h, cookie, created.DumpID)
 	if d.Status != "ready" {
 		t.Fatalf("dump = %+v", d)
+	}
+	if d.DestID != "" || d.DestName != "local" {
+		t.Fatalf("dest = %q %q", d.DestID, d.DestName)
 	}
 	if d.Label != "nightly" || d.Engine != "postgres" || d.SizeBytes == 0 || d.SourceDB != "app" {
 		t.Fatalf("dump = %+v", d)
@@ -89,17 +92,17 @@ func TestDumpValidation(t *testing.T) {
 	cookie := setupAndLogin(t, h)
 	db := createDatabase(t, h, cookie)
 	rec := doJSON(t, h, "POST", "/api/databases/"+db.ID+"/dump",
-		map[string]string{"label": "x", "storage": "ftp"}, cookie)
+		map[string]string{"label": "x", "destId": "!!!"}, cookie)
 	if rec.Code != 400 {
-		t.Fatalf("bad storage = %d", rec.Code)
+		t.Fatalf("bad destId = %d", rec.Code)
 	}
 	rec = doJSON(t, h, "POST", "/api/databases/"+db.ID+"/dump",
-		map[string]string{"label": "x", "storage": "s3"}, cookie)
+		map[string]string{"label": "x", "destId": encID(999)}, cookie)
 	if rec.Code != 400 {
-		t.Fatalf("unconfigured s3 = %d", rec.Code)
+		t.Fatalf("unknown destId = %d", rec.Code)
 	}
 	rec = doJSON(t, h, "POST", "/api/databases/AAAA/dump",
-		map[string]string{"label": "x", "storage": "local"}, cookie)
+		map[string]string{"label": "x", "destId": ""}, cookie)
 	if rec.Code != 404 {
 		t.Fatalf("bad db = %d", rec.Code)
 	}
@@ -110,7 +113,7 @@ func TestDumpDefaultLabel(t *testing.T) {
 	cookie := setupAndLogin(t, h)
 	db := createDatabase(t, h, cookie)
 	rec := doJSON(t, h, "POST", "/api/databases/"+db.ID+"/dump",
-		map[string]string{"storage": "local"}, cookie)
+		map[string]string{"destId": ""}, cookie)
 	if rec.Code != 201 {
 		t.Fatalf("dump = %d: %s", rec.Code, rec.Body.String())
 	}

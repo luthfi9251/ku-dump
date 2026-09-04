@@ -79,7 +79,7 @@ func (s *Server) handleUploadRestore(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	local, err := s.NewStore("local")
+	local, err := s.NewStore(r.Context(), 0)
 	if err != nil {
 		log.Printf("open local storage: %v", err)
 		fail(w, http.StatusInternalServerError, "INTERNAL", "internal error")

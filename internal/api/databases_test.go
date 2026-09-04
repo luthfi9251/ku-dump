@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -28,7 +29,7 @@ func newServerWithEngine(t *testing.T, pg engine.Engine) http.Handler {
 	if err != nil {
 		t.Fatal(err)
 	}
-	newStore := func(kind string) (storage.Store, error) {
+	newStore := func(ctx context.Context, destID int64) (storage.Store, error) {
 		return storage.NewLocalFS(filepath.Join(dir, "dumps"))
 	}
 	engines := map[string]engine.Engine{"postgres": pg, "mongodb": fakeMongo{}}

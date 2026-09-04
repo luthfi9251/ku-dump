@@ -31,7 +31,7 @@ func TestJobListAndDetail(t *testing.T) {
 	cookie := setupAndLogin(t, h)
 	db := createDatabase(t, h, cookie)
 	rec := doJSON(t, h, "POST", "/api/databases/"+db.ID+"/dump",
-		map[string]string{"storage": "local"}, cookie)
+		map[string]string{"destId": ""}, cookie)
 	var created struct {
 		JobID  string `json:"jobId"`
 		DumpID string `json:"dumpId"`
@@ -53,7 +53,7 @@ func TestJobListAndDetail(t *testing.T) {
 	}
 	got := jobs[0]
 	if got.ID != created.JobID || got.Type != "dump" || got.Status != "success" ||
-		got.DatabaseName != "prod" || got.DumpLabel == "" || got.Storage == nil || *got.Storage != "local" {
+		got.DatabaseName != "prod" || got.DumpLabel == "" {
 		t.Fatalf("job = %+v", got)
 	}
 	if got.Error != "" {
@@ -85,7 +85,7 @@ func TestJobCancelTerminalConflict(t *testing.T) {
 	cookie := setupAndLogin(t, h)
 	db := createDatabase(t, h, cookie)
 	rec := doJSON(t, h, "POST", "/api/databases/"+db.ID+"/dump",
-		map[string]string{"storage": "local"}, cookie)
+		map[string]string{"destId": ""}, cookie)
 	var created struct {
 		JobID  string `json:"jobId"`
 		DumpID string `json:"dumpId"`

@@ -18,7 +18,7 @@ type Deps struct {
 	Crypt    *cryptx.Cryptx
 	Runner   *runner.Runner
 	Engines  map[string]engine.Engine
-	NewStore func(kind string) (storage.Store, error)
+	NewStore func(ctx context.Context, destID int64) (storage.Store, error)
 	Sessions *Sessions
 	Limiter  *RateLimiter
 }
@@ -58,10 +58,13 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/jobs", s.auth(s.handleListJobs))
 	s.mux.HandleFunc("GET /api/jobs/{id}", s.auth(s.handleGetJob))
 	s.mux.HandleFunc("POST /api/jobs/{id}/cancel", s.auth(s.handleCancelJob))
-	s.mux.HandleFunc("GET /api/settings/storage", s.auth(s.handleGetStorageSettings))
-	s.mux.HandleFunc("PUT /api/settings/storage", s.auth(s.handlePutStorageSettings))
-	s.mux.HandleFunc("POST /api/settings/storage/test", s.auth(s.handleTestStorage))
 	s.mux.HandleFunc("GET /api/tools", s.auth(s.handleTools))
+	s.mux.HandleFunc("GET /api/storage/destinations", s.auth(s.handleListDestinations))
+	s.mux.HandleFunc("POST /api/storage/destinations", s.auth(s.handleCreateDestination))
+	s.mux.HandleFunc("POST /api/storage/destinations/test", s.auth(s.handleTestDestinationPayload))
+	s.mux.HandleFunc("PUT /api/storage/destinations/{id}", s.auth(s.handleUpdateDestination))
+	s.mux.HandleFunc("POST /api/storage/destinations/{id}/test", s.auth(s.handleTestDestination))
+	s.mux.HandleFunc("DELETE /api/storage/destinations/{id}", s.auth(s.handleDeleteDestination))
 	s.mux.HandleFunc("/", s.handleNotFound)
 }
 
