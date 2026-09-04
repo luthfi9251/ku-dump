@@ -61,6 +61,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await api.post('/api/auth/setup', { username, password })
     const user = await api.post<Me>('/api/auth/login', { username, password })
     setMe(user)
+    setNeedsSetup(false)
   }, [])
 
   const logout = useCallback(async () => {

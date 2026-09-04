@@ -36,14 +36,14 @@ const emptyForm: FormState = {
 export default function DatabaseModal({ open, onClose, db, onSaved }: Props) {
   const [form, setForm] = useState<FormState>(emptyForm)
   const [error, setError] = useState('')
-  const [testMsg, setTestMsg] = useState('')
+  const [testMsg, setTestMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const [testing, setTesting] = useState(false)
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     if (!open) return
     setError('')
-    setTestMsg('')
+    setTestMsg(null)
     if (db) {
       setForm({
         name: db.name,
@@ -66,13 +66,13 @@ export default function DatabaseModal({ open, onClose, db, onSaved }: Props) {
 
   async function onTest() {
     setTesting(true)
-    setTestMsg('')
+    setTestMsg(null)
     try {
       const payload = { ...form, port: Number(form.port) }
       const res = await api.post<TestResultDTO>('/api/databases/test', payload)
-      setTestMsg(res.ok ? 'Connection OK' : `Failed: ${res.error ?? 'unknown'}`)
+      setTestMsg(res.ok ? { ok: true, text: 'Connection OK' } : { ok: false, text: `Failed: ${res.error ?? 'unknown'}` })
     } catch (err) {
-      setTestMsg(err instanceof ApiError ? err.message : 'test failed')
+      setTestMsg({ ok: false, text: err instanceof ApiError ? err.message : 'test failed' })
     } finally {
       setTesting(false)
     }
@@ -96,13 +96,18 @@ export default function DatabaseModal({ open, onClose, db, onSaved }: Props) {
   }
 
   return (
-    <Modal open={open} onClose={onClose} title={db ? `Edit ${db.name}` : 'Add database'}>
-      <form onSubmit={onSubmit} className="space-y-3">
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Name">
-            <Input value={form.name} onChange={(e) => set('name', e.target.value)} required />
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={db ? `Edit ${db.name}` : 'Register Database'}
+      subtitle="Configure host connection credentials and database driver options."
+    >
+      <form onSubmit={onSubmit} className="space-y-4">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Field label="Display Name">
+            <Input value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="Production DB" required />
           </Field>
-          <Field label="Engine">
+          <Field label="Database Engine">
             <Select
               value={form.engine}
               onChange={(e) => {
@@ -115,8 +120,8 @@ export default function DatabaseModal({ open, onClose, db, onSaved }: Props) {
               <option value="mongodb">MongoDB</option>
             </Select>
           </Field>
-          <Field label="Host">
-            <Input value={form.host} onChange={(e) => set('host', e.target.value)} required />
+          <Field label="Host / IP">
+            <Input value={form.host} onChange={(e) => set('host', e.target.value)} placeholder="127.0.0.1" required />
           </Field>
           <Field label="Port">
             <Input
@@ -128,32 +133,51 @@ export default function DatabaseModal({ open, onClose, db, onSaved }: Props) {
               required
             />
           </Field>
-          <Field label="Database name">
-            <Input value={form.dbName} onChange={(e) => set('dbName', e.target.value)} required />
+          <Field label="Database Name">
+            <Input value={form.dbName} onChange={(e) => set('dbName', e.target.value)} placeholder="app_db" required />
           </Field>
           <Field label="Username">
-            <Input value={form.username} onChange={(e) => set('username', e.target.value)} required />
+            <Input value={form.username} onChange={(e) => set('username', e.target.value)} placeholder="postgres" required />
           </Field>
         </div>
-        <Field label={db ? 'Password (leave empty to keep)' : 'Password'}>
+        <Field label={db ? 'Password (leave blank to keep existing)' : 'Password'}>
           <Input type="password" value={form.password} onChange={(e) => set('password', e.target.value)} required={!db} />
         </Field>
-        <Field label="Options (JSON, optional — e.g. sslmode / authSource)">
+        <Field label="Extra Options (JSON format, e.g. sslmode / authSource)">
           <Input value={form.options} onChange={(e) => set('options', e.target.value)} placeholder="{}" />
         </Field>
-        {error && <p className="text-sm text-red-600">{error}</p>}
-        {testMsg && (
-          <p className={`text-sm ${testMsg === 'Connection OK' ? 'text-green-600' : 'text-red-600'}`}>{testMsg}</p>
+
+        {error && (
+          <div className="rounded-lg border border-rose-800/60 bg-rose-950/40 p-2.5 text-xs text-rose-300">
+            {error}
+          </div>
         )}
-        <div className="flex justify-between pt-2">
+
+        {testMsg && (
+          <div
+            className={`rounded-lg border p-2.5 text-xs ${
+              testMsg.ok ? 'border-emerald-800/60 bg-emerald-950/40 text-emerald-300' : 'border-rose-800/60 bg-rose-950/40 text-rose-300'
+            }`}
+          >
+            {testMsg.text}
+          </div>
+        )}
+
+        <div className="flex items-center justify-between border-t border-slate-800 pt-4">
           <Button type="button" variant="outline" onClick={onTest} disabled={testing}>
-            {testing ? <Spinner /> : 'Test connection'}
+            {testing ? <Spinner /> : 'Test Connection'}
           </Button>
-          <Button type="submit" disabled={saving}>
-            {saving ? <Spinner /> : 'Save'}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button type="button" variant="ghost" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={saving}>
+              {saving ? <Spinner /> : 'Save Registration'}
+            </Button>
+          </div>
         </div>
       </form>
     </Modal>
   )
 }
+
