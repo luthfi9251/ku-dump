@@ -64,6 +64,18 @@ CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS storage_destinations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL UNIQUE,
+  kind TEXT NOT NULL CHECK (kind IN ('s3')),
+  endpoint TEXT NOT NULL,
+  region TEXT NOT NULL DEFAULT '',
+  bucket TEXT NOT NULL,
+  prefix TEXT NOT NULL DEFAULT '',
+  access_key TEXT NOT NULL,
+  secret_enc TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 `
 
 func Open(path string) (*Store, error) {
