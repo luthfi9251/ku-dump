@@ -55,6 +55,8 @@ export default function Workflows() {
         runAt: w.runAt || undefined,
         cron: w.cron || undefined,
         enabled: !w.enabled,
+        storagePath: w.storagePath,
+        filenamePattern: w.filenamePattern,
       }),
     onSuccess: () => {
       setActionErr('')

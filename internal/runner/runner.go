@@ -135,11 +135,21 @@ func (r *Runner) run(jobID int64) {
 	_ = r.st.SetJobFinished(context.Background(), jobID, status, errMsg)
 }
 
+// logf writes a timestamped progress line into the job log. CLI tools are
+// silent on success (pg_dump/pg_restore write stderr only on warnings and
+// errors), so the runner emits its own progress markers to make logs useful.
+func logf(w io.Writer, format string, args ...any) {
+	fmt.Fprintf(w, "[%s] %s\n", time.Now().UTC().Format("2006-01-02 15:04:05"), fmt.Sprintf(format, args...))
+}
+
 func (r *Runner) runDump(ctx context.Context, job *meta.Job, db *meta.Database, eng engine.Engine, log io.Writer) (err error) {
 	dump, err := r.st.GetDump(ctx, *job.DumpID)
 	if err != nil {
 		return err
 	}
+	started := time.Now()
+	logf(log, "starting dump of %s (%s %s:%d/%s) to %s",
+		db.Name, db.Engine, db.Host, db.Port, db.DBName, dump.Storage)
 	tmp, err := os.CreateTemp("", "kudump-*.dump")
 	if err != nil {
 		return err
@@ -165,12 +175,27 @@ func (r *Runner) runDump(ctx context.Context, job *meta.Job, db *meta.Database, 
 	if info, err = os.Stat(tmpName); err != nil {
 		return err
 	}
-	key := storage.KeyFor(db.Engine, storage.Slug(db.Name), time.Now().UTC())
+	logf(log, "dump finished: %d bytes in %s", info.Size(), time.Since(started).Round(time.Millisecond))
+	key := r.dumpKey(ctx, dump, db)
+	logf(log, "uploading to %s as %s", dump.Storage, key)
 	if err = store.Put(ctx, key, tmpName); err != nil {
 		return err
 	}
+	logf(log, "stored as %s — dump is now available in the Dumps page", key)
 	err = r.st.UpdateDumpResult(ctx, *job.DumpID, "ready", key, info.Size())
 	return err
+}
+
+// dumpKey resolves the storage key for a dump. Dumps produced by a workflow
+// use the workflow's folder + filename pattern; everything else (uploads,
+// legacy rows) falls back to the default engine/db/timestamp layout.
+func (r *Runner) dumpKey(ctx context.Context, dump *meta.Dump, db *meta.Database) string {
+	if dump.WorkflowID != 0 {
+		if wf, err := r.st.GetWorkflow(ctx, dump.WorkflowID); err == nil {
+			return storage.BuildKey(wf.StoragePath, wf.FilenamePattern, db.Engine, db.Name, wf.Name, time.Now().UTC())
+		}
+	}
+	return storage.KeyFor(db.Engine, storage.Slug(db.Name), time.Now().UTC())
 }
 
 func (r *Runner) runRestore(ctx context.Context, job *meta.Job, db *meta.Database, eng engine.Engine, log io.Writer) error {
@@ -178,6 +203,8 @@ func (r *Runner) runRestore(ctx context.Context, job *meta.Job, db *meta.Databas
 	if err != nil {
 		return err
 	}
+	started := time.Now()
+	logf(log, "starting restore of %q into %s (%s %s:%d/%s)", dump.Label, db.Name, db.Engine, db.Host, db.Port, db.DBName)
 	store, err := r.newStore(ctx, dump.DestID)
 	if err != nil {
 		return err
@@ -187,7 +214,12 @@ func (r *Runner) runRestore(ctx context.Context, job *meta.Job, db *meta.Databas
 		return err
 	}
 	defer rc.Close()
-	return eng.Restore(ctx, *db, dump.SourceDB, rc, log)
+	logf(log, "reading dump %s from %s", dump.Location, dump.Storage)
+	if err := eng.Restore(ctx, *db, dump.SourceDB, rc, log); err != nil {
+		return err
+	}
+	logf(log, "restore finished in %s", time.Since(started).Round(time.Millisecond))
+	return nil
 }
 
 func TailFile(path string, maxBytes int64) string {

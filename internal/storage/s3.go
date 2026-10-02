@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 
@@ -62,7 +63,12 @@ func (s *S3) object(key string) string {
 }
 
 func (s *S3) Put(ctx context.Context, key, localPath string) error {
-	_, err := s.client.FPutObject(ctx, s.cfg.Bucket, s.object(key), localPath, minio.PutObjectOptions{})
+	obj := s.object(key)
+	// refuse to clobber: refuse when the object already exists.
+	if _, err := s.client.StatObject(ctx, s.cfg.Bucket, obj, minio.StatObjectOptions{}); err == nil {
+		return fmt.Errorf("object already exists: %s", obj)
+	}
+	_, err := s.client.FPutObject(ctx, s.cfg.Bucket, obj, localPath, minio.PutObjectOptions{})
 	return err
 }
 

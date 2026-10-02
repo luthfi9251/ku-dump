@@ -148,6 +148,82 @@ func TestDumpJobSuccess(t *testing.T) {
 	}
 }
 
+func TestDumpJobWritesProgressLog(t *testing.T) {
+	run, st, _ := setup(t, &fakeEngine{name: "postgres"})
+	_, _, jobID := seedDumpJob(t, st)
+	run.Start(jobID)
+	j := waitTerminal(t, st, jobID)
+	if j.Status != "success" {
+		t.Fatalf("status = %s", j.Status)
+	}
+	log := TailFile(j.LogPath, 65536)
+	for _, want := range []string{"starting dump", "dump finished", "uploading to local", "stored as"} {
+		if !strings.Contains(log, want) {
+			t.Fatalf("log missing %q:\n%s", want, log)
+		}
+	}
+}
+
+func TestRestoreJobWritesProgressLog(t *testing.T) {
+	run, st, _ := setup(t, &fakeEngine{name: "postgres"})
+	_, dumpID, jobID := seedDumpJob(t, st)
+	run.Start(jobID)
+	waitTerminal(t, st, jobID)
+	ctx := context.Background()
+	targetID, _ := st.CreateDatabase(ctx, &meta.Database{Name: "dev", Engine: "postgres", Host: "h", Port: 1, DBName: "devdb", Username: "u", PasswordEnc: "ENC"})
+	restoreJob, _ := st.CreateJob(ctx, &meta.Job{Type: "restore", DatabaseID: targetID, DumpID: &dumpID})
+	run.Start(restoreJob)
+	j := waitTerminal(t, st, restoreJob)
+	if j.Status != "success" {
+		t.Fatalf("status = %s err = %s", j.Status, j.Err)
+	}
+	log := TailFile(j.LogPath, 65536)
+	for _, want := range []string{"starting restore", "restore finished"} {
+		if !strings.Contains(log, want) {
+			t.Fatalf("log missing %q:\n%s", want, log)
+		}
+	}
+}
+
+func TestDumpJobUsesWorkflowStorageConfig(t *testing.T) {
+	run, st, dumpsDir := setup(t, &fakeEngine{name: "postgres"})
+	ctx := context.Background()
+	dbID, err := st.CreateDatabase(ctx, &meta.Database{Name: "prod", Engine: "postgres", Host: "h", Port: 1, DBName: "appdb", Username: "u", PasswordEnc: "ENC"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wfID, err := st.CreateWorkflow(ctx, &meta.Workflow{Name: "Nightly Backup", DatabaseID: dbID,
+		TriggerKind: "manual", Enabled: true, StoragePath: "backups/prod", FilenamePattern: "{db}-{date}"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dumpID, err := st.CreateDump(ctx, &meta.Dump{DatabaseID: dbID, Engine: "postgres", Label: "l",
+		Storage: "local", SourceDB: "appdb", Status: "pending", CreatedBy: 1, WorkflowID: wfID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	jobID, err := st.CreateJob(ctx, &meta.Job{Type: "dump", DatabaseID: dbID, DumpID: &dumpID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run.Start(jobID)
+	j := waitTerminal(t, st, jobID)
+	if j.Status != "success" {
+		t.Fatalf("status = %s err = %s", j.Status, j.Err)
+	}
+	d, _ := st.GetDump(ctx, dumpID)
+	if !strings.HasPrefix(d.Location, "backups/prod/prod-") || !strings.HasSuffix(d.Location, ".dump") {
+		t.Fatalf("location = %q", d.Location)
+	}
+	local, err := storage.NewLocalFS(dumpsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := local.Open(ctx, d.Location); err != nil {
+		t.Fatalf("stored file missing: %v", err)
+	}
+}
+
 func TestStartIsIdempotent(t *testing.T) {
 	run, st, _ := setup(t, &fakeEngine{name: "postgres"})
 	_, _, jobID := seedDumpJob(t, st)

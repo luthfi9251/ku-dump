@@ -47,7 +47,8 @@ func (l *LocalFS) Put(ctx context.Context, key, localPath string) error {
 		return err
 	}
 	defer in.Close()
-	out, err := os.Create(dst)
+	// O_EXCL: a dump file may never be overwritten once written.
+	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if err != nil {
 		return err
 	}

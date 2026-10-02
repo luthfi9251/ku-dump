@@ -50,7 +50,7 @@ func TestPostgresDumpArgs(t *testing.T) {
 	db := pgDB(t, cx)
 	args := p.dumpArgs(db)
 	joined := strings.Join(args, " ")
-	for _, want := range []string{"-Fc", "--no-owner", "--no-privileges", "-h db1", "-p 5432", "-U u", "-d app"} {
+	for _, want := range []string{"-Fc", "-v", "--no-owner", "--no-privileges", "-h db1", "-p 5432", "-U u", "-d app"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("dumpArgs missing %q: %s", want, joined)
 		}
@@ -61,7 +61,7 @@ func TestPostgresRestoreArgs(t *testing.T) {
 	p, cx, _ := newPostgres(t)
 	db := pgDB(t, cx)
 	joined := strings.Join(p.restoreArgs(db), " ")
-	for _, want := range []string{"--clean", "--if-exists", "--no-owner", "--no-privileges", "-h db1", "-d app"} {
+	for _, want := range []string{"-v", "--clean", "--if-exists", "--no-owner", "--no-privileges", "-h db1", "-d app"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("restoreArgs missing %q: %s", want, joined)
 		}

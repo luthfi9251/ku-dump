@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/robfig/cron/v3"
@@ -14,21 +15,23 @@ import (
 )
 
 type workflowDTO struct {
-	ID           string `json:"id"`
-	Name         string `json:"name"`
-	DatabaseID   string `json:"databaseId"`
-	DatabaseName string `json:"databaseName"`
-	Engine       string `json:"engine"`
-	DestID       string `json:"destId"`
-	DestName     string `json:"destName"`
-	TriggerKind  string `json:"triggerKind"`
-	RunAt        string `json:"runAt"`
-	Cron         string `json:"cron"`
-	Enabled      bool   `json:"enabled"`
-	LastRunAt    string `json:"lastRunAt"`
-	LastError    string `json:"lastError"`
-	NextRunAt    string `json:"nextRunAt"`
-	CreatedAt    string `json:"createdAt"`
+	ID              string `json:"id"`
+	Name            string `json:"name"`
+	DatabaseID      string `json:"databaseId"`
+	DatabaseName    string `json:"databaseName"`
+	Engine          string `json:"engine"`
+	DestID          string `json:"destId"`
+	DestName        string `json:"destName"`
+	TriggerKind     string `json:"triggerKind"`
+	RunAt           string `json:"runAt"`
+	Cron            string `json:"cron"`
+	Enabled         bool   `json:"enabled"`
+	StoragePath     string `json:"storagePath"`
+	FilenamePattern string `json:"filenamePattern"`
+	LastRunAt       string `json:"lastRunAt"`
+	LastError       string `json:"lastError"`
+	NextRunAt       string `json:"nextRunAt"`
+	CreatedAt       string `json:"createdAt"`
 }
 
 func timePtrRFC3339(t *time.Time) string {
@@ -44,20 +47,33 @@ func workflowToDTO(r meta.WorkflowRow) workflowDTO {
 		DatabaseID: encID(r.DatabaseID), DatabaseName: r.DatabaseName, Engine: r.DatabaseEngine,
 		DestID: encIDOrEmpty(r.DestID), DestName: r.DestName,
 		TriggerKind: r.TriggerKind, RunAt: timePtrRFC3339(r.RunAt), Cron: r.Cron,
-		Enabled: r.Enabled, LastRunAt: timePtrRFC3339(r.LastRunAt),
+		Enabled: r.Enabled, StoragePath: r.StoragePath, FilenamePattern: r.FilenamePattern,
+		LastRunAt: timePtrRFC3339(r.LastRunAt),
 		LastError: r.LastError, NextRunAt: timePtrRFC3339(r.NextRunAt),
 		CreatedAt: r.CreatedAt.Format(time.RFC3339),
 	}
 }
 
 type workflowPayload struct {
-	Name        string `json:"name"`
-	DatabaseID  string `json:"databaseId"`
-	DestID      string `json:"destId"`
-	TriggerKind string `json:"triggerKind"`
-	RunAt       string `json:"runAt"`
-	Cron        string `json:"cron"`
-	Enabled     *bool  `json:"enabled"`
+	Name            string `json:"name"`
+	DatabaseID      string `json:"databaseId"`
+	DestID          string `json:"destId"`
+	TriggerKind     string `json:"triggerKind"`
+	RunAt           string `json:"runAt"`
+	Cron            string `json:"cron"`
+	Enabled         *bool  `json:"enabled"`
+	StoragePath     string `json:"storagePath"`
+	FilenamePattern string `json:"filenamePattern"`
+}
+
+// cleanStorageField trims and length-caps the optional storage path / filename
+// pattern. Content is sanitized at key-resolution time (storage.BuildKey).
+func cleanStorageField(s, label string) (string, error) {
+	s = strings.TrimSpace(s)
+	if len(s) > 200 {
+		return "", fmt.Errorf("%s is too long (max 200 characters)", label)
+	}
+	return s, nil
 }
 
 // validateWorkflowTrigger returns run_at, cron and next_run_at for the given
@@ -156,6 +172,16 @@ func (s *Server) handleCreateWorkflow(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, "VALIDATION", err.Error())
 		return
 	}
+	storagePath, err := cleanStorageField(p.StoragePath, "storagePath")
+	if err != nil {
+		fail(w, http.StatusBadRequest, "VALIDATION", err.Error())
+		return
+	}
+	filenamePattern, err := cleanStorageField(p.FilenamePattern, "filenamePattern")
+	if err != nil {
+		fail(w, http.StatusBadRequest, "VALIDATION", err.Error())
+		return
+	}
 	db, _ := s.Store.GetDatabase(r.Context(), dbID)
 	name := p.Name
 	if name == "" {
@@ -168,7 +194,7 @@ func (s *Server) handleCreateWorkflow(w http.ResponseWriter, r *http.Request) {
 	wfID, err := s.Store.CreateWorkflow(r.Context(), &meta.Workflow{
 		Name: name, DatabaseID: dbID, DestID: destID,
 		TriggerKind: p.TriggerKind, RunAt: runAt, Cron: cronExpr,
-		Enabled: enabled, NextRunAt: next,
+		Enabled: enabled, StoragePath: storagePath, FilenamePattern: filenamePattern, NextRunAt: next,
 	})
 	if err != nil {
 		log.Printf("create workflow: %v", err)
@@ -202,6 +228,16 @@ func (s *Server) handleUpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, "VALIDATION", err.Error())
 		return
 	}
+	storagePath, err := cleanStorageField(p.StoragePath, "storagePath")
+	if err != nil {
+		fail(w, http.StatusBadRequest, "VALIDATION", err.Error())
+		return
+	}
+	filenamePattern, err := cleanStorageField(p.FilenamePattern, "filenamePattern")
+	if err != nil {
+		fail(w, http.StatusBadRequest, "VALIDATION", err.Error())
+		return
+	}
 	enabled := current.Enabled
 	if p.Enabled != nil {
 		enabled = *p.Enabled
@@ -219,6 +255,8 @@ func (s *Server) handleUpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 	updated.RunAt = runAt
 	updated.Cron = cronExpr
 	updated.Enabled = enabled
+	updated.StoragePath = storagePath
+	updated.FilenamePattern = filenamePattern
 	updated.NextRunAt = next
 	if err := s.Store.UpdateWorkflow(r.Context(), &updated); err != nil {
 		log.Printf("update workflow %d: %v", current.ID, err)

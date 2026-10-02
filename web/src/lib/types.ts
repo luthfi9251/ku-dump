@@ -88,6 +88,8 @@ export interface WorkflowDTO {
   runAt: string
   cron: string
   enabled: boolean
+  storagePath: string
+  filenamePattern: string
   lastRunAt: string
   lastError: string
   nextRunAt: string

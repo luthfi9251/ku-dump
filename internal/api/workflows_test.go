@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 )
@@ -141,6 +142,56 @@ func TestWorkflowCRUDAndValidation(t *testing.T) {
 		if wf["id"] == manual.ID {
 			t.Fatal("workflow not deleted")
 		}
+	}
+}
+
+func TestWorkflowStorageConfig(t *testing.T) {
+	h := newTestServer(t)
+	cookie := setupAndLogin(t, h)
+	dbID := createDBViaAPI(t, h, cookie)
+
+	rec := doJSON(t, h, "POST", "/api/workflows", map[string]any{
+		"name": "w", "databaseId": dbID, "triggerKind": "manual",
+		"storagePath": "backups/prod", "filenamePattern": "{db}-{date}",
+	}, cookie)
+	if rec.Code != 201 {
+		t.Fatalf("create = %d: %s", rec.Code, rec.Body.String())
+	}
+	var wf struct {
+		ID              string `json:"id"`
+		StoragePath     string `json:"storagePath"`
+		FilenamePattern string `json:"filenamePattern"`
+	}
+	json.Unmarshal(rec.Body.Bytes(), &wf)
+	if wf.StoragePath != "backups/prod" || wf.FilenamePattern != "{db}-{date}" {
+		t.Fatalf("created = %+v", wf)
+	}
+
+	got := getWorkflow(t, h, cookie, wf.ID)
+	if got["storagePath"] != "backups/prod" || got["filenamePattern"] != "{db}-{date}" {
+		t.Fatalf("listed = %+v", got)
+	}
+
+	// update clears the fields back to defaults
+	rec = doJSON(t, h, "PUT", "/api/workflows/"+wf.ID, map[string]any{
+		"name": "w", "databaseId": dbID, "triggerKind": "manual",
+		"storagePath": "", "filenamePattern": "",
+	}, cookie)
+	if rec.Code != 200 {
+		t.Fatalf("update = %d: %s", rec.Code, rec.Body.String())
+	}
+	got = getWorkflow(t, h, cookie, wf.ID)
+	if got["storagePath"] != "" || got["filenamePattern"] != "" {
+		t.Fatalf("cleared = %+v", got)
+	}
+
+	// absurdly long values rejected
+	rec = doJSON(t, h, "POST", "/api/workflows", map[string]any{
+		"name": "w2", "databaseId": dbID, "triggerKind": "manual",
+		"filenamePattern": strings.Repeat("x", 300),
+	}, cookie)
+	if rec.Code != 400 {
+		t.Fatalf("long pattern = %d", rec.Code)
 	}
 }
 

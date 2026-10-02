@@ -26,6 +26,43 @@ function toLocalInput(iso: string): string {
   return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
 }
 
+function slug(s: string): string {
+  const out = s
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/-{2,}/g, '-')
+    .replace(/^-+|-+$/g, '')
+  return out || 'db'
+}
+
+// Mirrors storage.BuildKey on the backend so users see where files will land.
+export function previewKey(path: string, pattern: string, dbName: string, engine: string, wfName: string): string {
+  const now = new Date()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const stamp = `${now.getUTCFullYear()}${pad(now.getUTCMonth() + 1)}${pad(now.getUTCDate())}-${pad(now.getUTCHours())}${pad(now.getUTCMinutes())}${pad(now.getUTCSeconds())}`
+  if (!path.trim() && !pattern.trim()) return `${engine}/${slug(dbName)}/${stamp}.dump`
+  let name = (pattern.trim() || slug(dbName)).toLowerCase()
+  if (!name.includes('{timestamp}')) name += '-{timestamp}'
+  name = name
+    .replaceAll('{workflow}', slug(wfName || dbName))
+    .replaceAll('{db}', slug(dbName))
+    .replaceAll('{engine}', slug(engine))
+    .replaceAll('{date}', `${now.getUTCFullYear()}-${pad(now.getUTCMonth() + 1)}-${pad(now.getUTCDate())}`)
+    .replaceAll('{time}', `${pad(now.getUTCHours())}-${pad(now.getUTCMinutes())}-${pad(now.getUTCSeconds())}`)
+    .replaceAll('{timestamp}', stamp)
+    .replace(/[^a-z0-9._/-]+/g, '-')
+    .replace(/-{2,}/g, '-')
+  name = name.replace(/^[-./]+/, '').replace(/[-.]+$/, '') || stamp
+  if (!name.endsWith('.dump')) name += '.dump'
+  const segs = path
+    .split('/')
+    .map((s) => s.trim())
+    .filter((s) => s && s !== '.' && s !== '..')
+    .map(slug)
+  return [...segs, name].join('/')
+}
+
 export default function WorkflowModal({
   open,
   onClose,
@@ -42,6 +79,8 @@ export default function WorkflowModal({
   const [name, setName] = useState(editing?.name ?? '')
   const [dbId, setDbId] = useState(editing?.databaseId ?? db?.id ?? '')
   const [destId, setDestId] = useState(editing?.destId ?? '')
+  const [storagePath, setStoragePath] = useState(editing?.storagePath ?? '')
+  const [filenamePattern, setFilenamePattern] = useState(editing?.filenamePattern ?? '')
   const [kind, setKind] = useState<TriggerKind>(editing?.triggerKind ?? 'manual')
   const [runAt, setRunAt] = useState(editing?.runAt ? toLocalInput(editing.runAt) : '')
   const [preset, setPreset] = useState<Preset>('daily')
@@ -75,6 +114,8 @@ export default function WorkflowModal({
         databaseId: dbId,
         destId,
         triggerKind: kind,
+        storagePath: storagePath.trim(),
+        filenamePattern: filenamePattern.trim(),
       }
       if (editing) body.enabled = editing.enabled
       if (kind === 'once') body.runAt = new Date(runAt).toISOString()
@@ -101,6 +142,9 @@ export default function WorkflowModal({
   }
 
   const dbsList = db ? [db] : (dbs.data ?? [])
+  const selDb = dbsList.find((d) => d.id === dbId)
+  const previewDbName = selDb?.name ?? editing?.databaseName ?? 'db'
+  const previewEngine = selDb?.engine ?? editing?.engine ?? 'postgres'
 
   return (
     <Modal
@@ -237,6 +281,45 @@ export default function WorkflowModal({
               No S3 destinations configured — add one in Settings, or store locally.
             </p>
           )}
+        </Field>
+
+        {/* 4. Storage path & file naming */}
+        <Field
+          label="4 · Storage path & file naming (optional)"
+          hint="Empty = default layout <engine>/<db>/<timestamp>.dump"
+        >
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <Input
+                value={storagePath}
+                onChange={(e) => setStoragePath(e.target.value)}
+                placeholder="backups/prod"
+                className="font-mono text-xs"
+              />
+              <p className="mt-1 text-[11px] text-slate-500">Folder inside the destination, created automatically.</p>
+            </div>
+            <div>
+              <Input
+                value={filenamePattern}
+                onChange={(e) => setFilenamePattern(e.target.value)}
+                placeholder="{db}-{date}"
+                className="font-mono text-xs"
+              />
+              <p className="mt-1 text-[11px] text-slate-500">
+                Variables: {'{workflow}'} {'{db}'} {'{engine}'} {'{date}'} {'{time}'} {'{timestamp}'}
+              </p>
+            </div>
+          </div>
+          <div className="mt-2 rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2">
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Preview</div>
+            <code className="break-all font-mono text-xs text-emerald-300">
+              {previewKey(storagePath, filenamePattern, previewDbName, previewEngine, name)}
+            </code>
+          </div>
+          <p className="mt-1.5 text-[11px] text-slate-500">
+            A timestamp is always part of the file name unless the pattern uses {'{timestamp}'} — existing dumps are
+            never overwritten.
+          </p>
         </Field>
 
         <Field label="Name (optional)" hint="Defaults to database name">

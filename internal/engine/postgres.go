@@ -56,12 +56,14 @@ func (p *Postgres) connArgs(db meta.Database) []string {
 }
 
 func (p *Postgres) dumpArgs(db meta.Database) []string {
-	args := []string{"-Fc", "--no-owner", "--no-privileges"}
+	// -v: verbose progress on stderr; without it a successful dump is silent
+	// and the job log stays empty.
+	args := []string{"-Fc", "-v", "--no-owner", "--no-privileges"}
 	return append(args, p.connArgs(db)...)
 }
 
 func (p *Postgres) restoreArgs(db meta.Database) []string {
-	args := []string{"--clean", "--if-exists", "--no-owner", "--no-privileges"}
+	args := []string{"-v", "--clean", "--if-exists", "--no-owner", "--no-privileges"}
 	return append(args, p.connArgs(db)...)
 }
 

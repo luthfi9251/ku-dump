@@ -9,18 +9,20 @@ import (
 const timeLayout = "2006-01-02 15:04:05"
 
 type Workflow struct {
-	ID          int64
-	Name        string
-	DatabaseID  int64
-	DestID      int64
-	TriggerKind string // "manual" | "once" | "cron"
-	RunAt       *time.Time
-	Cron        string
-	Enabled     bool
-	LastRunAt   *time.Time
-	LastError   string
-	NextRunAt   *time.Time
-	CreatedAt   time.Time
+	ID              int64
+	Name            string
+	DatabaseID      int64
+	DestID          int64
+	TriggerKind     string // "manual" | "once" | "cron"
+	RunAt           *time.Time
+	Cron            string
+	Enabled         bool
+	StoragePath     string // folder inside the destination, "" = default layout
+	FilenamePattern string // file name template, "" = default naming
+	LastRunAt       *time.Time
+	LastError       string
+	NextRunAt       *time.Time
+	CreatedAt       time.Time
 }
 
 type WorkflowRow struct {
@@ -49,7 +51,8 @@ func scanWorkflow(row rowScanner) (*Workflow, error) {
 	var created string
 	var runAt, lastRun, nextRun sql.NullString
 	err := row.Scan(&wf.ID, &wf.Name, &wf.DatabaseID, &wf.DestID, &wf.TriggerKind,
-		&runAt, &wf.Cron, &wf.Enabled, &lastRun, &wf.LastError, &nextRun, &created)
+		&runAt, &wf.Cron, &wf.Enabled, &wf.StoragePath, &wf.FilenamePattern,
+		&lastRun, &wf.LastError, &nextRun, &created)
 	if err != nil {
 		return nil, err
 	}
@@ -60,14 +63,15 @@ func scanWorkflow(row rowScanner) (*Workflow, error) {
 	return &wf, nil
 }
 
-const workflowCols = `id, name, database_id, dest_id, trigger_kind, run_at, cron, enabled, last_run_at, last_error, next_run_at, created_at`
+const workflowCols = `id, name, database_id, dest_id, trigger_kind, run_at, cron, enabled, storage_path, filename_pattern, last_run_at, last_error, next_run_at, created_at`
 
 func (s *Store) CreateWorkflow(ctx context.Context, wf *Workflow) (int64, error) {
 	res, err := s.db.ExecContext(ctx, `INSERT INTO dump_workflows
-		(name, database_id, dest_id, trigger_kind, run_at, cron, enabled, last_run_at, last_error, next_run_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		(name, database_id, dest_id, trigger_kind, run_at, cron, enabled, storage_path, filename_pattern, last_run_at, last_error, next_run_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		wf.Name, wf.DatabaseID, wf.DestID, wf.TriggerKind,
-		formatTimePtr(wf.RunAt), wf.Cron, boolInt(wf.Enabled), formatTimePtr(wf.LastRunAt),
+		formatTimePtr(wf.RunAt), wf.Cron, boolInt(wf.Enabled), wf.StoragePath, wf.FilenamePattern,
+		formatTimePtr(wf.LastRunAt),
 		wf.LastError, formatTimePtr(wf.NextRunAt))
 	if err != nil {
 		return 0, err
@@ -82,7 +86,7 @@ func (s *Store) GetWorkflow(ctx context.Context, id int64) (*Workflow, error) {
 
 func (s *Store) ListWorkflows(ctx context.Context) ([]WorkflowRow, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT w.id, w.name, w.database_id, w.dest_id, w.trigger_kind,
-		w.run_at, w.cron, w.enabled, w.last_run_at, w.last_error, w.next_run_at, w.created_at,
+		w.run_at, w.cron, w.enabled, w.storage_path, w.filename_pattern, w.last_run_at, w.last_error, w.next_run_at, w.created_at,
 		IFNULL(db.name, ''), IFNULL(db.engine, ''),
 		CASE WHEN w.dest_id = 0 THEN 'local' ELSE IFNULL(sd.name, '') END
 		FROM dump_workflows w
@@ -99,7 +103,8 @@ func (s *Store) ListWorkflows(ctx context.Context) ([]WorkflowRow, error) {
 		var created string
 		var runAt, lastRun, nextRun sql.NullString
 		err := rows.Scan(&r.ID, &r.Name, &r.DatabaseID, &r.DestID, &r.TriggerKind,
-			&runAt, &r.Cron, &r.Enabled, &lastRun, &r.LastError, &nextRun, &created,
+			&runAt, &r.Cron, &r.Enabled, &r.StoragePath, &r.FilenamePattern,
+			&lastRun, &r.LastError, &nextRun, &created,
 			&r.DatabaseName, &r.DatabaseEngine, &r.DestName)
 		if err != nil {
 			return nil, err
@@ -131,10 +136,10 @@ func (s *Store) GetWorkflowRow(ctx context.Context, id int64) (*WorkflowRow, err
 func (s *Store) UpdateWorkflow(ctx context.Context, wf *Workflow) error {
 	_, err := s.db.ExecContext(ctx, `UPDATE dump_workflows SET
 		name = ?, database_id = ?, dest_id = ?, trigger_kind = ?, run_at = ?, cron = ?,
-		enabled = ?, last_run_at = ?, last_error = ?, next_run_at = ?
+		enabled = ?, storage_path = ?, filename_pattern = ?, last_run_at = ?, last_error = ?, next_run_at = ?
 		WHERE id = ?`,
 		wf.Name, wf.DatabaseID, wf.DestID, wf.TriggerKind,
-		formatTimePtr(wf.RunAt), wf.Cron, boolInt(wf.Enabled),
+		formatTimePtr(wf.RunAt), wf.Cron, boolInt(wf.Enabled), wf.StoragePath, wf.FilenamePattern,
 		formatTimePtr(wf.LastRunAt), wf.LastError, formatTimePtr(wf.NextRunAt), wf.ID)
 	return err
 }

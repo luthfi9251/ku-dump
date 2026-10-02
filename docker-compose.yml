@@ -1,0 +1,9 @@
+services:
+  ku-dump:
+    build: .
+    network_mode: host
+    environment:
+      KUDUMP_ADDR: "10.0.0.1:8080"
+    volumes:
+      - ./data:/data
+    restart: unless-stopped

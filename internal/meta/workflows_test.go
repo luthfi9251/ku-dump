@@ -35,6 +35,7 @@ func TestWorkflowCRUD(t *testing.T) {
 	wfID, err := st.CreateWorkflow(ctx, &Workflow{
 		Name: "nightly", DatabaseID: dbID, DestID: 0,
 		TriggerKind: "once", RunAt: &runAt, Enabled: true, NextRunAt: &runAt,
+		StoragePath: "backups/prod", FilenamePattern: "{db}-{date}",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -43,6 +44,9 @@ func TestWorkflowCRUD(t *testing.T) {
 	if err != nil || wf.Name != "nightly" || wf.TriggerKind != "once" || !wf.Enabled ||
 		wf.NextRunAt == nil || wf.NextRunAt.Unix() != runAt.Unix() {
 		t.Fatalf("get = %+v, %v", wf, err)
+	}
+	if wf.StoragePath != "backups/prod" || wf.FilenamePattern != "{db}-{date}" {
+		t.Fatalf("storage config = %q / %q", wf.StoragePath, wf.FilenamePattern)
 	}
 
 	rows, err := st.ListWorkflows(ctx)
@@ -58,12 +62,17 @@ func TestWorkflowCRUD(t *testing.T) {
 	wf.TriggerKind = "cron"
 	wf.RunAt = nil
 	wf.NextRunAt = &next
+	wf.StoragePath = ""
+	wf.FilenamePattern = ""
 	if err := st.UpdateWorkflow(ctx, wf); err != nil {
 		t.Fatal(err)
 	}
 	got, _ := st.GetWorkflow(ctx, wfID)
 	if got.Cron != "0 2 * * *" || got.RunAt != nil || got.NextRunAt == nil || got.NextRunAt.Unix() != next.Unix() {
 		t.Fatalf("after update = %+v", got)
+	}
+	if got.StoragePath != "" || got.FilenamePattern != "" {
+		t.Fatalf("storage config not cleared: %q / %q", got.StoragePath, got.FilenamePattern)
 	}
 
 	if err := st.DeleteWorkflow(ctx, wfID); err != nil {

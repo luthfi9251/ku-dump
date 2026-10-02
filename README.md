@@ -44,8 +44,13 @@ Dump, and watch the job log live.
   workflow creator with the database preselected.
 - **Workflows** — reusable dump recipes: pick a database, when it runs
   (manually, once at a time, or recurring hourly/daily/weekly/advanced cron),
-  and the storage destination. Run any workflow now with the play button,
-  pause/resume it, and see next/last run plus errors.
+  and the storage destination. Optionally set a storage path (folder inside
+  the destination) and a file name pattern with variables `{workflow}` `{db}`
+  `{engine}` `{date}` `{time}` `{timestamp}`; empty keeps the default
+  `<engine>/<db>/<timestamp>.dump` layout. A timestamp is always part of the
+  file name, and dumps are never overwritten (existing objects refuse to be
+  replaced). Run any workflow now with the play button, pause/resume it, and
+  see next/last run plus errors.
 - **Dumps** — history with download/delete, grouped by storage destination.
   Upload a file dump (`pg_dump -Fc` or gzipped mongo archive) to restore it.
 - **Jobs** — live log tail, cancel while running.

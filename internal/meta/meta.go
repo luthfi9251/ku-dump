@@ -113,6 +113,14 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	if err := ensureColumn(db, "dump_workflows", "storage_path", `ALTER TABLE dump_workflows ADD COLUMN storage_path TEXT NOT NULL DEFAULT ''`); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err := ensureColumn(db, "dump_workflows", "filename_pattern", `ALTER TABLE dump_workflows ADD COLUMN filename_pattern TEXT NOT NULL DEFAULT ''`); err != nil {
+		db.Close()
+		return nil, err
+	}
 	return &Store{db: db}, nil
 }
 
