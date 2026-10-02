@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { AlertTriangle, CalendarClock, Pause, Play, Pencil, Plus, Trash2 } from 'lucide-react'
-import { api } from '../lib/api'
+import { api, ApiError } from '../lib/api'
 import type { WorkflowDTO } from '../lib/types'
 import { Badge, Button, StatCard } from '../ui'
 import WorkflowModal from '../modals/WorkflowModal'
@@ -33,6 +33,7 @@ export default function Workflows() {
   const navigate = useNavigate()
   const [showAdd, setShowAdd] = useState(false)
   const [editing, setEditing] = useState<WorkflowDTO | undefined>(undefined)
+  const [actionErr, setActionErr] = useState('')
 
   const workflows = useQuery({
     queryKey: ['workflows'],
@@ -55,20 +56,30 @@ export default function Workflows() {
         cron: w.cron || undefined,
         enabled: !w.enabled,
       }),
-    onSuccess: invalidate,
+    onSuccess: () => {
+      setActionErr('')
+      invalidate()
+    },
+    onError: (err) => setActionErr(err instanceof ApiError ? err.message : 'failed to update workflow'),
   })
 
   const run = useMutation({
     mutationFn: (w: WorkflowDTO) => api.post<{ jobId: string }>(`/api/workflows/${w.id}/run`),
     onSuccess: (res) => {
+      setActionErr('')
       invalidate()
       navigate(`/jobs?job=${res.jobId}`)
     },
+    onError: (err) => setActionErr(err instanceof ApiError ? err.message : 'failed to run workflow'),
   })
 
   const remove = useMutation({
     mutationFn: (id: string) => api.del(`/api/workflows/${id}`),
-    onSuccess: invalidate,
+    onSuccess: () => {
+      setActionErr('')
+      invalidate()
+    },
+    onError: (err) => setActionErr(err instanceof ApiError ? err.message : 'failed to delete workflow'),
   })
 
   const rows = workflows.data ?? []
@@ -185,7 +196,11 @@ export default function Workflows() {
         </div>
       </div>
 
-      <WorkflowModal open={showAdd} onClose={() => setShowAdd(false)} onSaved={invalidate} />
+      {actionErr && (
+        <div className="rounded-lg border border-rose-800/60 bg-rose-950/40 p-3 text-xs text-rose-300">{actionErr}</div>
+      )}
+
+      {showAdd && <WorkflowModal open onClose={() => setShowAdd(false)} onSaved={invalidate} />}
       {editing && (
         <WorkflowModal open editing={editing} onClose={() => setEditing(undefined)} onSaved={invalidate} />
       )}
