@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"path/filepath"
+	"time"
 
 	"github.com/luthfi9251/ku-dump/internal/api"
 	"github.com/luthfi9251/ku-dump/internal/config"
@@ -15,6 +16,7 @@ import (
 	"github.com/luthfi9251/ku-dump/internal/engine"
 	"github.com/luthfi9251/ku-dump/internal/meta"
 	"github.com/luthfi9251/ku-dump/internal/runner"
+	"github.com/luthfi9251/ku-dump/internal/scheduler"
 	"github.com/luthfi9251/ku-dump/internal/storage"
 	"github.com/luthfi9251/ku-dump/web"
 )
@@ -89,6 +91,14 @@ func main() {
 	if err := run.Recover(ctx); err != nil {
 		log.Fatal(err)
 	}
+
+	sched := scheduler.New(st, run)
+	if err := sched.Recover(ctx, time.Now()); err != nil {
+		log.Fatal(err)
+	}
+	schedCtx, stopSched := context.WithCancel(ctx)
+	defer stopSched()
+	go sched.Run(schedCtx)
 
 	handler := api.NewServer(api.Deps{
 		Store: st, Crypt: cx, Runner: run, Engines: engines, NewStore: newStore,
