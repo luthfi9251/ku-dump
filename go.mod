@@ -5,6 +5,7 @@ go 1.26.6
 require (
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/minio/minio-go/v7 v7.3.0
+	github.com/robfig/cron/v3 v3.0.1
 	go.mongodb.org/mongo-driver v1.17.9
 	golang.org/x/crypto v0.55.0
 	modernc.org/sqlite v1.57.0
@@ -27,7 +28,6 @@ require (
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/philhofer/fwd v1.2.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
-	github.com/robfig/cron/v3 v3.0.1 // indirect
 	github.com/rs/xid v1.6.0 // indirect
 	github.com/tinylib/msgp v1.6.4 // indirect
 	github.com/xdg-go/pbkdf2 v1.0.0 // indirect

@@ -261,9 +261,11 @@ func (s *Server) handleRunWorkflow(w http.ResponseWriter, r *http.Request) {
 			fail(w, http.StatusBadRequest, "TOOL_MISSING", err.Error())
 		case errors.Is(err, runner.ErrStorageUnavailable):
 			fail(w, http.StatusBadRequest, "STORAGE_NOT_CONFIGURED", err.Error())
+		case errors.Is(err, meta.ErrNotFound):
+			fail(w, http.StatusNotFound, "NOT_FOUND", "workflow target not found")
 		default:
 			log.Printf("run workflow %d: %v", wf.ID, err)
-			fail(w, http.StatusNotFound, "NOT_FOUND", "workflow target not found")
+			fail(w, http.StatusInternalServerError, "INTERNAL", "internal error")
 		}
 		return
 	}
