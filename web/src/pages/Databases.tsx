@@ -17,7 +17,7 @@ import { api } from "../lib/api";
 import type { DatabaseDTO, TestResultDTO } from "../lib/types";
 import { Badge, Button, Input, Select, Spinner, StatCard } from "../ui";
 import DatabaseModal from "../modals/DatabaseModal";
-import DumpModal from "../modals/DumpModal";
+import WorkflowModal from "../modals/WorkflowModal";
 import RestoreModal from "../modals/RestoreModal";
 
 export default function Databases() {
@@ -318,7 +318,15 @@ export default function Databases() {
         onSaved={invalidate}
       />
       {dumpTarget && (
-        <DumpModal open onClose={() => setDumpTarget(null)} db={dumpTarget} />
+        <WorkflowModal
+          open
+          onClose={() => setDumpTarget(null)}
+          db={dumpTarget}
+          onSaved={() => {
+            invalidate();
+            void qc.invalidateQueries({ queryKey: ["workflows"] });
+          }}
+        />
       )}
       {restoreTarget && (
         <RestoreModal

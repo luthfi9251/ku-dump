@@ -113,6 +113,7 @@ export default function Dumps() {
               <tr>
                 <th className="px-5 py-3.5">Label</th>
                 <th className="px-5 py-3.5">Database</th>
+                <th className="px-5 py-3.5">Workflow</th>
                 <th className="px-5 py-3.5">Engine</th>
                 <th className="px-5 py-3.5">Storage</th>
                 <th className="px-5 py-3.5">Size</th>
@@ -127,6 +128,9 @@ export default function Dumps() {
                   <td className="px-5 py-4 font-semibold text-slate-100">{d.label}</td>
                   <td className="px-5 py-4 text-slate-300">
                     {d.databaseName || <span className="italic text-slate-500">uploaded file</span>}
+                  </td>
+                  <td className="px-5 py-4 text-xs text-indigo-300">
+                    {d.workflowName || <span className="text-slate-600">—</span>}
                   </td>
                   <td className="px-5 py-4">
                     <Badge tone={d.engine === 'postgres' ? 'blue' : 'green'}>{d.engine}</Badge>
@@ -188,7 +192,7 @@ export default function Dumps() {
               ))}
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-6 py-12 text-center text-slate-500">
+                  <td colSpan={9} className="px-6 py-12 text-center text-slate-500">
                     <Archive size={32} className="mx-auto mb-2 opacity-40" />
                     No dump archives match your search or filter criteria.
                   </td>
