@@ -54,9 +54,12 @@ Dump, and watch the job log live.
 - **Dumps** — history with download/delete, grouped by storage destination.
   Upload a file dump (`pg_dump -Fc` or gzipped mongo archive) to restore it.
 - **Jobs** — live log tail, cancel while running.
-- **Settings** — storage destinations: register any number of S3-compatible
-  buckets (endpoint/bucket/credentials, MinIO works); local disk is always
-  available. Plus CLI tool availability.
+- **Destinations** — reusable storage targets on their own page: local
+  folders (any absolute path), S3-compatible buckets, or remote servers
+  over SFTP (password or key). Test each with one click; destinations
+  referenced by dumps or workflows cannot be deleted. Assign any of them
+  per workflow.
+- **Settings** — CLI tool availability.
 
 When a workflow runs it stores the dump under the workflow's chosen
 destination, and the Dumps page shows which workflow produced it. Scheduled
@@ -66,7 +69,8 @@ deleted until the workflow is updated or removed.
 
 Restores are destructive: target objects are dropped first
 (`pg_restore --clean --if-exists`, `mongorestore --drop`). The UI and the
-API both require typing the target database name to confirm.
+API both require typing the target database name to confirm. The restore
+dialog lets you filter dumps per destination and shows file size and date.
 
 ## Development
 

@@ -699,3 +699,120 @@ func TestAPIS3DestinationLifecycle(t *testing.T) {
 		t.Fatalf("delete dest after workflow+dump gone = %d", code)
 	}
 }
+
+func TestSFTPDestination(t *testing.T) {
+	cx := testCrypt(t)
+	engines := tools(cx)
+	ctx := context.Background()
+
+	dir := t.TempDir()
+	st, err := meta.Open(dir + "/m.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+
+	secret, err := cx.Encrypt("pass")
+	if err != nil {
+		t.Fatal(err)
+	}
+	destID, err := st.CreateDestination(ctx, &meta.Destination{
+		Name: "offsite", Kind: "sftp", Host: "127.0.0.1", Port: 2222,
+		Username: "backup", AuthType: "password", SecretEnc: secret, RemoteDir: "dumps",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	offsite, err := storage.NewSFTP(storage.SFTPConfig{
+		Host: "127.0.0.1", Port: 2222, Username: "backup",
+		AuthType: "password", Secret: "pass", RemoteDir: "dumps",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitReady(t, "sftp", func() error { return offsite.Test(ctx) })
+
+	newStore := func(ctx context.Context, id int64) (storage.Store, error) {
+		if id == 0 {
+			return storage.NewLocalFS(dir + "/dumps")
+		}
+		d, err := st.GetDestination(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		sec, err := cx.Decrypt(d.SecretEnc)
+		if err != nil {
+			return nil, err
+		}
+		return storage.NewSFTP(storage.SFTPConfig{
+			Host: d.Host, Port: d.Port, Username: d.Username,
+			AuthType: d.AuthType, Secret: sec, RemoteDir: d.RemoteDir,
+		})
+	}
+
+	admin := adminConn(t)
+	var dropped string
+	_ = admin.QueryRow(ctx, "DROP DATABASE IF EXISTS sftpdb WITH (FORCE)").Scan(&dropped)
+	if _, err := admin.Exec(ctx, "CREATE DATABASE sftpdb"); err != nil {
+		t.Fatal(err)
+	}
+	srcConn, err := pgx.Connect(ctx, fmt.Sprintf("postgres://postgres:postgres@%s:%d/sftpdb?sslmode=disable", pgHost, pgPort))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer srcConn.Close(ctx)
+	if _, err := srcConn.Exec(ctx, `CREATE TABLE items (id serial PRIMARY KEY, name text);
+		INSERT INTO items (name) VALUES ('alpha'), ('beta')`); err != nil {
+		t.Fatal(err)
+	}
+
+	db := pgDatabase(t, cx, "sftpdb")
+	dbID, err := st.CreateDatabase(ctx, &db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := runner.New(st, engines, newStore, dir+"/logs")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, dumpID, err := run.StartDump(ctx, dbID, destID, "sftp-run", 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(30 * time.Second)
+	var dump *meta.Dump
+	for time.Now().Before(deadline) {
+		dump, err = st.GetDump(ctx, dumpID)
+		if err == nil && dump.Status == "ready" {
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	if dump == nil || dump.Status != "ready" {
+		t.Fatalf("dump not ready: %+v, %v", dump, err)
+	}
+	if err := offsite.Stat(ctx, dump.Location); err != nil {
+		t.Fatalf("dump not on sftp server: %v", err)
+	}
+
+	// restore from sftp into the same db (fake tools accept it)
+	rJob, err := st.CreateJob(ctx, &meta.Job{Type: "restore", DatabaseID: dbID, DumpID: &dumpID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run.Start(rJob)
+	dl := time.Now().Add(30 * time.Second)
+	for time.Now().Before(dl) {
+		j, err := st.GetJob(ctx, rJob)
+		if err == nil && (j.Status == "success" || j.Status == "failed") {
+			if j.Status != "success" {
+				t.Fatalf("restore failed: %s", j.Err)
+			}
+			return
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	t.Fatal("restore job did not finish")
+}

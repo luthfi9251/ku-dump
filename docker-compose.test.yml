@@ -25,3 +25,8 @@ services:
       MINIO_ROOT_PASSWORD: minioadmin
     ports:
       - "9000:9000"
+  sftp:
+    image: atmoz/sftp:alpine
+    command: backup:pass:1001::dumps
+    ports:
+      - "2222:22"
