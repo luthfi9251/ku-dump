@@ -76,10 +76,24 @@ CREATE TABLE IF NOT EXISTS storage_destinations (
   secret_enc TEXT NOT NULL,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+CREATE TABLE IF NOT EXISTS dump_workflows (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  name         TEXT NOT NULL,
+  database_id  INTEGER NOT NULL REFERENCES databases(id) ON DELETE CASCADE,
+  dest_id      INTEGER NOT NULL DEFAULT 0,
+  trigger_kind TEXT NOT NULL CHECK (trigger_kind IN ('manual','once','cron')),
+  run_at       TEXT,
+  cron         TEXT NOT NULL DEFAULT '',
+  enabled      INTEGER NOT NULL DEFAULT 1,
+  last_run_at  TEXT,
+  last_error   TEXT NOT NULL DEFAULT '',
+  next_run_at  TEXT,
+  created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+);
 `
 
 func Open(path string) (*Store, error) {
-	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)")
+	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)")
 	if err != nil {
 		return nil, err
 	}
@@ -92,6 +106,10 @@ func Open(path string) (*Store, error) {
 		return nil, err
 	}
 	if err := ensureColumn(db, "dumps", "dest_id", `ALTER TABLE dumps ADD COLUMN dest_id INTEGER NOT NULL DEFAULT 0`); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err := ensureColumn(db, "dumps", "workflow_id", `ALTER TABLE dumps ADD COLUMN workflow_id INTEGER NOT NULL DEFAULT 0`); err != nil {
 		db.Close()
 		return nil, err
 	}
