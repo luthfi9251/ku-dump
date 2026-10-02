@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"os"
 	"testing"
 )
 
@@ -137,5 +138,133 @@ func TestDestinationTestUnreachable(t *testing.T) {
 	json.NewDecoder(rec.Body).Decode(&res)
 	if res.OK || res.Error == "" {
 		t.Fatalf("res = %+v", res)
+	}
+}
+
+func TestLocalDestinationLifecycle(t *testing.T) {
+	h := newTestServer(t)
+	cookie := setupAndLogin(t, h)
+	root := t.TempDir()
+
+	// relative path rejected
+	rec := doJSON(t, h, "POST", "/api/storage/destinations", map[string]any{
+		"name": "bad", "kind": "local", "rootPath": "relative/path",
+	}, cookie)
+	if rec.Code != 400 {
+		t.Fatalf("relative rootPath = %d: %s", rec.Code, rec.Body.String())
+	}
+
+	rec = doJSON(t, h, "POST", "/api/storage/destinations", map[string]any{
+		"name": "nfs", "kind": "local", "rootPath": root + "/pg",
+	}, cookie)
+	if rec.Code != 201 {
+		t.Fatalf("create local = %d: %s", rec.Code, rec.Body.String())
+	}
+	var d struct {
+		ID        string `json:"id"`
+		Kind      string `json:"kind"`
+		RootPath  string `json:"rootPath"`
+		SecretSet bool   `json:"secretSet"`
+	}
+	json.Unmarshal(rec.Body.Bytes(), &d)
+	if d.Kind != "local" || d.RootPath != root+"/pg" || d.SecretSet {
+		t.Fatalf("created = %+v", d)
+	}
+	if _, err := os.Stat(root + "/pg"); err != nil {
+		t.Fatalf("rootPath not created on save: %v", err)
+	}
+
+	// test endpoint probes the folder
+	rec = doJSON(t, h, "POST", "/api/storage/destinations/"+d.ID+"/test", nil, cookie)
+	var tr struct {
+		OK    bool   `json:"ok"`
+		Error string `json:"error"`
+	}
+	json.Unmarshal(rec.Body.Bytes(), &tr)
+	if !tr.OK {
+		t.Fatalf("local test failed: %s", tr.Error)
+	}
+
+	// kind is immutable on update
+	rec = doJSON(t, h, "PUT", "/api/storage/destinations/"+d.ID, map[string]any{
+		"name": "nfs", "kind": "s3", "endpoint": "http://e", "bucket": "b", "accessKey": "k", "secretKey": "s",
+	}, cookie)
+	if rec.Code != 400 {
+		t.Fatalf("kind change = %d", rec.Code)
+	}
+
+	// delete still works while unused
+	rec = doJSON(t, h, "DELETE", "/api/storage/destinations/"+d.ID, nil, cookie)
+	if rec.Code != 200 {
+		t.Fatalf("delete local = %d", rec.Code)
+	}
+}
+
+func TestSFTPDestinationValidation(t *testing.T) {
+	h := newTestServer(t)
+	cookie := setupAndLogin(t, h)
+
+	// missing authType
+	rec := doJSON(t, h, "POST", "/api/storage/destinations", map[string]any{
+		"name": "off", "kind": "sftp", "host": "h", "username": "u", "secretKey": "s",
+	}, cookie)
+	if rec.Code != 400 {
+		t.Fatalf("missing authType = %d", rec.Code)
+	}
+
+	// create ok (test endpoint fails gracefully against a dead host)
+	rec = doJSON(t, h, "POST", "/api/storage/destinations", map[string]any{
+		"name": "off", "kind": "sftp", "host": "127.0.0.1", "port": 1,
+		"username": "u", "authType": "password", "secretKey": "s", "remoteDir": "dumps",
+	}, cookie)
+	if rec.Code != 201 {
+		t.Fatalf("create sftp = %d: %s", rec.Code, rec.Body.String())
+	}
+	var d struct {
+		ID       string `json:"id"`
+		Port     int    `json:"port"`
+		AuthType string `json:"authType"`
+	}
+	json.Unmarshal(rec.Body.Bytes(), &d)
+	if d.Port != 1 || d.AuthType != "password" {
+		t.Fatalf("created = %+v", d)
+	}
+
+	// update keeps secret when blank
+	rec = doJSON(t, h, "PUT", "/api/storage/destinations/"+d.ID, map[string]any{
+		"name": "off2", "kind": "sftp", "host": "127.0.0.1", "port": 2,
+		"username": "u", "authType": "key",
+	}, cookie)
+	if rec.Code != 200 {
+		t.Fatalf("update sftp = %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// test endpoint returns ok:false (dead host), not a 5xx
+	rec = doJSON(t, h, "POST", "/api/storage/destinations/"+d.ID+"/test", nil, cookie)
+	var tr struct {
+		OK bool `json:"ok"`
+	}
+	json.Unmarshal(rec.Body.Bytes(), &tr)
+	if tr.OK {
+		t.Fatal("sftp test unexpectedly ok")
+	}
+}
+
+func TestDestinationKindDefaultsToS3(t *testing.T) {
+	h := newTestServer(t)
+	cookie := setupAndLogin(t, h)
+	// no kind field -> s3 validation applies
+	rec := doJSON(t, h, "POST", "/api/storage/destinations", map[string]any{
+		"name": "legacy-client", "endpoint": "http://e", "bucket": "b", "accessKey": "k", "secretKey": "s",
+	}, cookie)
+	if rec.Code != 201 {
+		t.Fatalf("kindless payload = %d: %s", rec.Code, rec.Body.String())
+	}
+	var d struct {
+		Kind string `json:"kind"`
+	}
+	json.Unmarshal(rec.Body.Bytes(), &d)
+	if d.Kind != "s3" {
+		t.Fatalf("kind = %q", d.Kind)
 	}
 }
