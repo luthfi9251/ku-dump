@@ -1,12 +1,10 @@
 package api
 
 import (
-	"errors"
 	"io"
 	"log"
 	"net/http"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/luthfi9251/ku-dump/internal/meta"
@@ -25,6 +23,7 @@ type dumpDTO struct {
 	SourceDB     string `json:"sourceDb"`
 	CreatedBy    string `json:"createdBy"`
 	CreatedAt    string `json:"createdAt"`
+	WorkflowName string `json:"workflowName"`
 }
 
 func encIDOrEmpty(id int64) string {
@@ -48,80 +47,8 @@ func dumpToDTO(r meta.DumpRow) dumpDTO {
 		SourceDB:     r.SourceDB,
 		CreatedBy:    encIDOrEmpty(r.CreatedBy),
 		CreatedAt:    r.CreatedAt.Format(time.RFC3339),
+		WorkflowName: r.WorkflowName,
 	}
-}
-
-func (s *Server) handleCreateDump(w http.ResponseWriter, r *http.Request) {
-	dbID, err := decID(r.PathValue("id"))
-	if err != nil {
-		fail(w, http.StatusNotFound, "NOT_FOUND", "database not found")
-		return
-	}
-	db, err := s.Store.GetDatabase(r.Context(), dbID)
-	if err != nil {
-		fail(w, http.StatusNotFound, "NOT_FOUND", "database not found")
-		return
-	}
-	var req struct {
-		Label  string `json:"label"`
-		DestID string `json:"destId"`
-	}
-	if !decodeBody(w, r, &req) {
-		return
-	}
-	destID := int64(0)
-	storageKind := "local"
-	if req.DestID != "" {
-		var err error
-		destID, err = decID(req.DestID)
-		if err != nil {
-			fail(w, http.StatusBadRequest, "VALIDATION", "invalid destId")
-			return
-		}
-		dest, err := s.Store.GetDestination(r.Context(), destID)
-		if err != nil {
-			fail(w, http.StatusBadRequest, "STORAGE_NOT_CONFIGURED", "storage destination not found")
-			return
-		}
-		storageKind = dest.Kind
-	}
-	if _, err := s.NewStore(r.Context(), destID); err != nil {
-		fail(w, http.StatusBadRequest, "STORAGE_NOT_CONFIGURED", "selected storage is not available: "+err.Error())
-		return
-	}
-	eng := s.Engines[db.Engine]
-	if missing := eng.ToolsMissing(); len(missing) > 0 {
-		fail(w, http.StatusBadRequest, "TOOL_MISSING", "missing tools: "+strings.Join(missing, ", "))
-		return
-	}
-	label := req.Label
-	if label == "" {
-		label = db.Name + " " + time.Now().Format("2006-01-02 15:04")
-	}
-	dumpID, err := s.Store.CreateDump(r.Context(), &meta.Dump{
-		DatabaseID: db.ID, Engine: db.Engine, Label: label, Storage: storageKind,
-		DestID: destID, SourceDB: db.DBName, Status: "pending", CreatedBy: userID(r),
-	})
-	if err != nil {
-		log.Printf("create dump: %v", err)
-		fail(w, http.StatusInternalServerError, "INTERNAL", "internal error")
-		return
-	}
-	jobID, err := s.Store.CreateJobGuarded(r.Context(), &meta.Job{
-		Type: "dump", DatabaseID: db.ID, DumpID: &dumpID,
-	})
-	if err != nil {
-		if errors.Is(err, meta.ErrJobActive) {
-			_ = s.Store.DeleteDump(r.Context(), dumpID)
-			fail(w, http.StatusConflict, "JOB_ACTIVE", "a job is already running for this database")
-			return
-		}
-		log.Printf("create dump job: %v", err)
-		fail(w, http.StatusInternalServerError, "INTERNAL", "internal error")
-		return
-	}
-	s.Runner.Start(jobID)
-	jsonOut(w, http.StatusCreated, map[string]string{"jobId": encID(jobID), "dumpId": encID(dumpID)})
 }
 
 func (s *Server) handleListDumps(w http.ResponseWriter, r *http.Request) {

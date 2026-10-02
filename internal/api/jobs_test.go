@@ -30,19 +30,13 @@ func TestJobListAndDetail(t *testing.T) {
 	h := newTestServer(t)
 	cookie := setupAndLogin(t, h)
 	db := createDatabase(t, h, cookie)
-	rec := doJSON(t, h, "POST", "/api/databases/"+db.ID+"/dump",
-		map[string]string{"destId": ""}, cookie)
-	var created struct {
-		JobID  string `json:"jobId"`
-		DumpID string `json:"dumpId"`
-	}
-	json.NewDecoder(rec.Body).Decode(&created)
-	j := waitJobTerminal(t, h, cookie, created.JobID)
+	jobID, _ := dumpViaWorkflow(t, h, cookie, db.ID, "nightly")
+	j := waitJobTerminal(t, h, cookie, jobID)
 	if j.Status != "success" {
 		t.Fatalf("job = %+v", j)
 	}
 
-	rec = doJSON(t, h, "GET", "/api/jobs", nil, cookie)
+	rec := doJSON(t, h, "GET", "/api/jobs", nil, cookie)
 	if rec.Code != 200 {
 		t.Fatalf("list = %d", rec.Code)
 	}
@@ -52,7 +46,7 @@ func TestJobListAndDetail(t *testing.T) {
 		t.Fatalf("len = %d", len(jobs))
 	}
 	got := jobs[0]
-	if got.ID != created.JobID || got.Type != "dump" || got.Status != "success" ||
+	if got.ID != jobID || got.Type != "dump" || got.Status != "success" ||
 		got.DatabaseName != "prod" || got.DumpLabel == "" {
 		t.Fatalf("job = %+v", got)
 	}
@@ -60,7 +54,7 @@ func TestJobListAndDetail(t *testing.T) {
 		t.Fatalf("error = %q", got.Error)
 	}
 
-	rec = doJSON(t, h, "GET", "/api/jobs/"+created.JobID, nil, cookie)
+	rec = doJSON(t, h, "GET", "/api/jobs/"+jobID, nil, cookie)
 	if rec.Code != 200 {
 		t.Fatalf("detail = %d", rec.Code)
 	}
@@ -84,15 +78,9 @@ func TestJobCancelTerminalConflict(t *testing.T) {
 	h := newTestServer(t)
 	cookie := setupAndLogin(t, h)
 	db := createDatabase(t, h, cookie)
-	rec := doJSON(t, h, "POST", "/api/databases/"+db.ID+"/dump",
-		map[string]string{"destId": ""}, cookie)
-	var created struct {
-		JobID  string `json:"jobId"`
-		DumpID string `json:"dumpId"`
-	}
-	json.NewDecoder(rec.Body).Decode(&created)
-	waitDumpReady(t, h, cookie, created.DumpID)
-	rec = doJSON(t, h, "POST", "/api/jobs/"+created.JobID+"/cancel", nil, cookie)
+	jobID, d := dumpViaWorkflow(t, h, cookie, db.ID, "nightly")
+	waitDumpReady(t, h, cookie, d.ID)
+	rec := doJSON(t, h, "POST", "/api/jobs/"+jobID+"/cancel", nil, cookie)
 	if rec.Code != 409 {
 		t.Fatalf("cancel terminal = %d: %s", rec.Code, rec.Body.String())
 	}

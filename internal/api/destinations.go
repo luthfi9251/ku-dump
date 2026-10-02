@@ -174,6 +174,17 @@ func (s *Server) handleDeleteDestination(w http.ResponseWriter, r *http.Request)
 			"destination still holds dumps; delete or move them first")
 		return
 	}
+	wn, err := s.Store.CountWorkflowsForDestination(r.Context(), id)
+	if err != nil {
+		log.Printf("count workflows for destination %d: %v", id, err)
+		fail(w, http.StatusInternalServerError, "INTERNAL", "internal error")
+		return
+	}
+	if wn > 0 {
+		fail(w, http.StatusConflict, "DESTINATION_IN_USE",
+			"destination is referenced by a workflow; update or delete the workflow first")
+		return
+	}
 	if err := s.Store.DeleteDestination(r.Context(), id); err != nil {
 		log.Printf("delete destination %d: %v", id, err)
 		fail(w, http.StatusInternalServerError, "INTERNAL", "internal error")

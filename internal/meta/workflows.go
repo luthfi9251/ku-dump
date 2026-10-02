@@ -113,6 +113,21 @@ func (s *Store) ListWorkflows(ctx context.Context) ([]WorkflowRow, error) {
 	return out, rows.Err()
 }
 
+// GetWorkflowRow returns a workflow joined with database/destination names.
+// ListWorkflows is tiny at real-world scale, so its query is reused.
+func (s *Store) GetWorkflowRow(ctx context.Context, id int64) (*WorkflowRow, error) {
+	rows, err := s.ListWorkflows(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for i := range rows {
+		if rows[i].ID == id {
+			return &rows[i], nil
+		}
+	}
+	return nil, ErrNotFound
+}
+
 func (s *Store) UpdateWorkflow(ctx context.Context, wf *Workflow) error {
 	_, err := s.db.ExecContext(ctx, `UPDATE dump_workflows SET
 		name = ?, database_id = ?, dest_id = ?, trigger_kind = ?, run_at = ?, cron = ?,

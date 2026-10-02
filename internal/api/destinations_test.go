@@ -76,16 +76,26 @@ func TestDestinationDeleteGuard(t *testing.T) {
 	cookie := setupAndLogin(t, h)
 	id := createDest(t, h, cookie, "minio")
 	db := createDatabase(t, h, cookie)
-	rec := doJSON(t, h, "POST", "/api/databases/"+db.ID+"/dump", map[string]string{"label": "x", "destId": id}, cookie)
+	rec := doJSON(t, h, "POST", "/api/workflows", map[string]any{
+		"name": "x", "databaseId": db.ID, "destId": id, "triggerKind": "manual",
+	}, cookie)
 	if rec.Code != 201 {
-		t.Fatalf("dump = %d: %s", rec.Code, rec.Body.String())
+		t.Fatalf("create wf = %d: %s", rec.Code, rec.Body.String())
+	}
+	var wf struct {
+		ID string `json:"id"`
+	}
+	json.NewDecoder(rec.Body).Decode(&wf)
+	rec = doJSON(t, h, "POST", "/api/workflows/"+wf.ID+"/run", nil, cookie)
+	if rec.Code != 201 {
+		t.Fatalf("run wf = %d: %s", rec.Code, rec.Body.String())
 	}
 	var created struct {
 		DumpID string `json:"dumpId"`
 	}
 	json.NewDecoder(rec.Body).Decode(&created)
 	d := waitDumpReady(t, h, cookie, created.DumpID)
-	if d.Status != "ready" || d.DestName != "minio" || d.DestID != id {
+	if d.DestName != "minio" || d.DestID != id {
 		t.Fatalf("dump = %+v", d)
 	}
 	rec = doJSON(t, h, "DELETE", "/api/storage/destinations/"+id, nil, cookie)
@@ -97,8 +107,16 @@ func TestDestinationDeleteGuard(t *testing.T) {
 		t.Fatalf("delete dump = %d", rec.Code)
 	}
 	rec = doJSON(t, h, "DELETE", "/api/storage/destinations/"+id, nil, cookie)
+	if rec.Code != 409 {
+		t.Fatalf("delete with workflow = %d", rec.Code)
+	}
+	rec = doJSON(t, h, "DELETE", "/api/workflows/"+wf.ID, nil, cookie)
 	if rec.Code != 200 {
-		t.Fatalf("delete after dump gone = %d", rec.Code)
+		t.Fatalf("delete wf = %d", rec.Code)
+	}
+	rec = doJSON(t, h, "DELETE", "/api/storage/destinations/"+id, nil, cookie)
+	if rec.Code != 200 {
+		t.Fatalf("delete after refs gone = %d", rec.Code)
 	}
 }
 

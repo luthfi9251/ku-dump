@@ -15,16 +15,8 @@ type restorePayload struct {
 func dumpSomething(t *testing.T, h http.Handler, cookie *http.Cookie) dumpDTO {
 	t.Helper()
 	db := createDatabase(t, h, cookie)
-	rec := doJSON(t, h, "POST", "/api/databases/"+db.ID+"/dump",
-		map[string]string{"storage": "local"}, cookie)
-	if rec.Code != 201 {
-		t.Fatalf("dump = %d: %s", rec.Code, rec.Body.String())
-	}
-	var created struct {
-		DumpID string `json:"dumpId"`
-	}
-	json.NewDecoder(rec.Body).Decode(&created)
-	return waitDumpReady(t, h, cookie, created.DumpID)
+	_, d := dumpViaWorkflow(t, h, cookie, db.ID, "")
+	return d
 }
 
 func createTargetDB(t *testing.T, h http.Handler, cookie *http.Cookie, name string) databaseDTO {

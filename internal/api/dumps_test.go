@@ -22,6 +22,32 @@ func createDatabase(t *testing.T, h http.Handler, cookie *http.Cookie) databaseD
 	return d
 }
 
+// dumpViaWorkflow creates a manual workflow for the database and runs it —
+// the direct POST /api/databases/{id}/dump endpoint was removed.
+func dumpViaWorkflow(t *testing.T, h http.Handler, cookie *http.Cookie, dbID, name string) (string, dumpDTO) {
+	t.Helper()
+	rec := doJSON(t, h, "POST", "/api/workflows", map[string]any{
+		"name": name, "databaseId": dbID, "destId": "", "triggerKind": "manual",
+	}, cookie)
+	if rec.Code != 201 {
+		t.Fatalf("create workflow = %d: %s", rec.Code, rec.Body.String())
+	}
+	var wf struct {
+		ID string `json:"id"`
+	}
+	json.NewDecoder(rec.Body).Decode(&wf)
+	rec = doJSON(t, h, "POST", "/api/workflows/"+wf.ID+"/run", nil, cookie)
+	if rec.Code != 201 {
+		t.Fatalf("run workflow = %d: %s", rec.Code, rec.Body.String())
+	}
+	var created struct {
+		JobID  string `json:"jobId"`
+		DumpID string `json:"dumpId"`
+	}
+	json.NewDecoder(rec.Body).Decode(&created)
+	return created.JobID, waitDumpReady(t, h, cookie, created.DumpID)
+}
+
 func waitDumpReady(t *testing.T, h http.Handler, cookie *http.Cookie, dumpID string) dumpDTO {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
@@ -46,17 +72,7 @@ func TestDumpFlow(t *testing.T) {
 	h := newTestServer(t)
 	cookie := setupAndLogin(t, h)
 	db := createDatabase(t, h, cookie)
-	rec := doJSON(t, h, "POST", "/api/databases/"+db.ID+"/dump",
-		map[string]string{"label": "nightly", "destId": ""}, cookie)
-	if rec.Code != 201 {
-		t.Fatalf("dump = %d: %s", rec.Code, rec.Body.String())
-	}
-	var created struct {
-		JobID  string `json:"jobId"`
-		DumpID string `json:"dumpId"`
-	}
-	json.NewDecoder(rec.Body).Decode(&created)
-	d := waitDumpReady(t, h, cookie, created.DumpID)
+	_, d := dumpViaWorkflow(t, h, cookie, db.ID, "nightly")
 	if d.Status != "ready" {
 		t.Fatalf("dump = %+v", d)
 	}
@@ -66,7 +82,7 @@ func TestDumpFlow(t *testing.T) {
 	if d.Label != "nightly" || d.Engine != "postgres" || d.SizeBytes == 0 || d.SourceDB != "app" {
 		t.Fatalf("dump = %+v", d)
 	}
-	rec = doJSON(t, h, "GET", "/api/dumps/"+d.ID+"/download", nil, cookie)
+	rec := doJSON(t, h, "GET", "/api/dumps/"+d.ID+"/download", nil, cookie)
 	if rec.Code != 200 {
 		t.Fatalf("download = %d", rec.Code)
 	}
@@ -91,18 +107,18 @@ func TestDumpValidation(t *testing.T) {
 	h := newTestServer(t)
 	cookie := setupAndLogin(t, h)
 	db := createDatabase(t, h, cookie)
-	rec := doJSON(t, h, "POST", "/api/databases/"+db.ID+"/dump",
-		map[string]string{"label": "x", "destId": "!!!"}, cookie)
+	rec := doJSON(t, h, "POST", "/api/workflows",
+		map[string]any{"name": "x", "databaseId": db.ID, "destId": "!!!", "triggerKind": "manual"}, cookie)
 	if rec.Code != 400 {
 		t.Fatalf("bad destId = %d", rec.Code)
 	}
-	rec = doJSON(t, h, "POST", "/api/databases/"+db.ID+"/dump",
-		map[string]string{"label": "x", "destId": encID(999)}, cookie)
+	rec = doJSON(t, h, "POST", "/api/workflows",
+		map[string]any{"name": "x", "databaseId": db.ID, "destId": encID(999), "triggerKind": "manual"}, cookie)
 	if rec.Code != 400 {
 		t.Fatalf("unknown destId = %d", rec.Code)
 	}
-	rec = doJSON(t, h, "POST", "/api/databases/AAAA/dump",
-		map[string]string{"label": "x", "destId": ""}, cookie)
+	rec = doJSON(t, h, "POST", "/api/workflows",
+		map[string]any{"name": "x", "databaseId": "AAAA", "triggerKind": "manual"}, cookie)
 	if rec.Code != 404 {
 		t.Fatalf("bad db = %d", rec.Code)
 	}
@@ -112,16 +128,7 @@ func TestDumpDefaultLabel(t *testing.T) {
 	h := newTestServer(t)
 	cookie := setupAndLogin(t, h)
 	db := createDatabase(t, h, cookie)
-	rec := doJSON(t, h, "POST", "/api/databases/"+db.ID+"/dump",
-		map[string]string{"destId": ""}, cookie)
-	if rec.Code != 201 {
-		t.Fatalf("dump = %d: %s", rec.Code, rec.Body.String())
-	}
-	var created struct {
-		DumpID string `json:"dumpId"`
-	}
-	json.NewDecoder(rec.Body).Decode(&created)
-	d := waitDumpReady(t, h, cookie, created.DumpID)
+	_, d := dumpViaWorkflow(t, h, cookie, db.ID, "")
 	if d.Label == "" {
 		t.Fatal("default label missing")
 	}
