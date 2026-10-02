@@ -1,12 +1,13 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { Archive, Database, HardDrive, ListChecks, LogOut, Settings, ShieldCheck } from 'lucide-react'
+import { Archive, CalendarClock, Database, HardDrive, ListChecks, LogOut, Settings, ShieldCheck } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { useAuth } from './auth'
 import { api } from './lib/api'
-import type { JobDTO } from './lib/types'
+import type { JobDTO, WorkflowDTO } from './lib/types'
 
 const links = [
   { to: '/', label: 'Databases', icon: Database },
+  { to: '/workflows', label: 'Workflows', icon: CalendarClock },
   { to: '/dumps', label: 'Dumps', icon: Archive },
   { to: '/jobs', label: 'Jobs', icon: ListChecks },
   { to: '/settings', label: 'Settings', icon: Settings },
@@ -23,6 +24,13 @@ export default function Layout() {
   })
 
   const runningCount = jobs.data?.filter((j) => j.status === 'pending' || j.status === 'running').length ?? 0
+
+  const workflows = useQuery({
+    queryKey: ['workflows-summary'],
+    queryFn: () => api.get<WorkflowDTO[]>('/api/workflows'),
+    refetchInterval: 10000,
+  })
+  const failingWorkflows = workflows.data?.filter((w) => w.lastError !== '').length ?? 0
 
   return (
     <div className="flex min-h-screen bg-slate-950 text-slate-100 selection:bg-indigo-500/30 selection:text-indigo-200">
@@ -59,6 +67,12 @@ export default function Layout() {
                 <span className="flex items-center gap-1 rounded-full bg-amber-500/20 px-2 py-0.5 text-[11px] font-semibold text-amber-400 border border-amber-500/30 animate-pulse">
                   <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
                   {runningCount} active
+                </span>
+              )}
+              {label === 'Workflows' && failingWorkflows > 0 && (
+                <span className="flex items-center gap-1 rounded-full bg-rose-500/20 px-2 py-0.5 text-[11px] font-semibold text-rose-400 border border-rose-500/30">
+                  <span className="h-1.5 w-1.5 rounded-full bg-rose-400" />
+                  {failingWorkflows} error{failingWorkflows > 1 ? 's' : ''}
                 </span>
               )}
             </NavLink>

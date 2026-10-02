@@ -25,6 +25,7 @@ export interface DumpDTO {
   label: string
   destId: string
   destName: string
+  workflowName: string
   status: DumpStatus
   sizeBytes: number
   sourceDb: string
@@ -71,4 +72,24 @@ export interface ToolsDTO {
 export interface TestResultDTO {
   ok: boolean
   error?: string
+}
+
+export type TriggerKind = 'manual' | 'once' | 'cron'
+
+export interface WorkflowDTO {
+  id: string
+  name: string
+  databaseId: string
+  databaseName: string
+  engine: Engine
+  destId: string
+  destName: string
+  triggerKind: TriggerKind
+  runAt: string
+  cron: string
+  enabled: boolean
+  lastRunAt: string
+  lastError: string
+  nextRunAt: string
+  createdAt: string
 }

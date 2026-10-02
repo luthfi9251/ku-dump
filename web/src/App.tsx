@@ -7,6 +7,7 @@ import Databases from './pages/Databases'
 import Dumps from './pages/Dumps'
 import Jobs from './pages/Jobs'
 import Settings from './pages/Settings'
+import Workflows from './pages/Workflows'
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
@@ -29,6 +30,7 @@ export default function App() {
               <Route index element={<Databases />} />
               <Route path="/dumps" element={<Dumps />} />
               <Route path="/jobs" element={<Jobs />} />
+              <Route path="/workflows" element={<Workflows />} />
               <Route path="/settings" element={<Settings />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
