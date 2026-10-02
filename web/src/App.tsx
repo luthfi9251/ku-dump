@@ -4,6 +4,7 @@ import { AuthProvider, RequireAuth } from './auth'
 import Layout from './Layout'
 import Login from './pages/Login'
 import Databases from './pages/Databases'
+import Destinations from './pages/Destinations'
 import Dumps from './pages/Dumps'
 import Jobs from './pages/Jobs'
 import Settings from './pages/Settings'
@@ -31,6 +32,7 @@ export default function App() {
               <Route path="/dumps" element={<Dumps />} />
               <Route path="/jobs" element={<Jobs />} />
               <Route path="/workflows" element={<Workflows />} />
+              <Route path="/destinations" element={<Destinations />} />
               <Route path="/settings" element={<Settings />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />

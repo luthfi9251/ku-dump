@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { Archive, CalendarClock, Database, HardDrive, ListChecks, LogOut, Settings, ShieldCheck } from 'lucide-react'
+import { Archive, CalendarClock, Database, HardDrive, ListChecks, LogOut, Server, Settings, ShieldCheck } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { useAuth } from './auth'
 import { api } from './lib/api'
@@ -10,6 +10,7 @@ const links = [
   { to: '/workflows', label: 'Workflows', icon: CalendarClock },
   { to: '/dumps', label: 'Dumps', icon: Archive },
   { to: '/jobs', label: 'Jobs', icon: ListChecks },
+  { to: '/destinations', label: 'Destinations', icon: Server },
   { to: '/settings', label: 'Settings', icon: Settings },
 ]
 

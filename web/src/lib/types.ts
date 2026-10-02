@@ -51,16 +51,24 @@ export interface JobDTO {
   logTail?: string
 }
 
+export type DestinationKind = 's3' | 'local' | 'sftp'
+
 export interface StorageDestinationDTO {
   id: string
   name: string
-  kind: 's3'
+  kind: DestinationKind
   endpoint: string
   region: string
   bucket: string
   prefix: string
   accessKey: string
   secretSet: boolean
+  rootPath: string
+  host: string
+  port: number
+  username: string
+  authType: string
+  remoteDir: string
   createdAt: string
 }
 
