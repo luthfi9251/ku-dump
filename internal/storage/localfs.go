@@ -26,6 +26,22 @@ func NewLocalFS(root string) (*LocalFS, error) {
 
 func (l *LocalFS) Kind() string { return "local" }
 
+// Test verifies the root exists (created if needed) and is writable by
+// writing, reading and removing a probe file.
+func (l *LocalFS) Test() error {
+	if err := os.MkdirAll(l.root, 0o755); err != nil {
+		return err
+	}
+	probe := filepath.Join(l.root, "._kudump-probe")
+	if err := os.WriteFile(probe, []byte("ok"), 0o644); err != nil {
+		return err
+	}
+	if _, err := os.ReadFile(probe); err != nil {
+		return err
+	}
+	return os.Remove(probe)
+}
+
 func (l *LocalFS) path(key string) (string, error) {
 	p := filepath.Join(l.root, filepath.FromSlash(key))
 	if !strings.HasPrefix(p, filepath.Clean(l.root)+string(os.PathSeparator)) {

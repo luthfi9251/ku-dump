@@ -85,6 +85,29 @@ func TestLocalFSDelete(t *testing.T) {
 	}
 }
 
+func TestLocalFSTestProbe(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "nested", "root")
+	l, err := NewLocalFS(root) // MkdirAll nested
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := l.Test(); err != nil {
+		t.Fatalf("probe failed: %v", err)
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), "._kudump-probe") {
+			t.Fatalf("probe file left behind: %s", e.Name())
+		}
+	}
+	if len(entries) != 0 {
+		t.Fatalf("unexpected files: %v", entries)
+	}
+}
+
 func TestLocalFSTraversalRejected(t *testing.T) {
 	l := newLocal(t)
 	src := putFile(t, "x")
