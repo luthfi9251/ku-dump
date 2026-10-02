@@ -420,8 +420,8 @@ func TestAPIEndToEnd(t *testing.T) {
 		t.Fatalf("register dst = %d: %s", code, body)
 	}
 
-	code, body = postJSON(t, client, srv.URL, "/api/databases/MTIz/dump", map[string]string{"label": "e2e", "destId": ""})
-	if code == 201 {
+	code, body = postJSON(t, client, srv.URL, "/api/workflows/MTIz/run", nil)
+	if code != 404 {
 		t.Fatal("opaque id guessing must not pass")
 	}
 	var dbs []map[string]any
@@ -436,9 +436,19 @@ func TestAPIEndToEnd(t *testing.T) {
 			dstID = db["id"].(string)
 		}
 	}
-	code, body = postJSON(t, client, srv.URL, fmt.Sprintf("/api/databases/%s/dump", srcID), map[string]string{"label": "e2e", "destId": ""})
+	code, body = postJSON(t, client, srv.URL, "/api/workflows", map[string]string{
+		"name": "e2e", "databaseId": srcID, "destId": "", "triggerKind": "manual",
+	})
 	if code != 201 {
-		t.Fatalf("dump = %d: %s", code, body)
+		t.Fatalf("create workflow = %d: %s", code, body)
+	}
+	var wfRes struct {
+		ID string `json:"id"`
+	}
+	json.Unmarshal(body, &wfRes)
+	code, body = postJSON(t, client, srv.URL, "/api/workflows/"+wfRes.ID+"/run", nil)
+	if code != 201 {
+		t.Fatalf("run workflow = %d: %s", code, body)
 	}
 	var dumpRes struct {
 		JobID  string `json:"jobId"`
@@ -612,9 +622,19 @@ func TestAPIS3DestinationLifecycle(t *testing.T) {
 		}
 	}
 
-	code, body = postJSON(t, client, srv.URL, fmt.Sprintf("/api/databases/%s/dump", srcID), map[string]string{"label": "s3e2e", "destId": dest.ID})
+	code, body = postJSON(t, client, srv.URL, "/api/workflows", map[string]string{
+		"name": "s3e2e", "databaseId": srcID, "destId": dest.ID, "triggerKind": "manual",
+	})
 	if code != 201 {
-		t.Fatalf("dump = %d: %s", code, body)
+		t.Fatalf("create workflow = %d: %s", code, body)
+	}
+	var wfRes struct {
+		ID string `json:"id"`
+	}
+	json.Unmarshal(body, &wfRes)
+	code, body = postJSON(t, client, srv.URL, "/api/workflows/"+wfRes.ID+"/run", nil)
+	if code != 201 {
+		t.Fatalf("run workflow = %d: %s", code, body)
 	}
 	var dumpRes struct {
 		JobID  string `json:"jobId"`
@@ -669,10 +689,13 @@ func TestAPIS3DestinationLifecycle(t *testing.T) {
 		t.Fatalf("count = %d, want 2", count)
 	}
 
+	if code, _ := delJSON(t, client, srv.URL, "/api/workflows/"+wfRes.ID); code != 200 {
+		t.Fatalf("delete workflow = %d", code)
+	}
 	if code, _ := delJSON(t, client, srv.URL, "/api/dumps/"+dumpID); code != 200 {
 		t.Fatalf("delete dump = %d", code)
 	}
 	if code, _ := delJSON(t, client, srv.URL, "/api/storage/destinations/"+dest.ID); code != 200 {
-		t.Fatalf("delete dest after dump gone = %d", code)
+		t.Fatalf("delete dest after workflow+dump gone = %d", code)
 	}
 }

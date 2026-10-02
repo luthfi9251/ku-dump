@@ -40,20 +40,24 @@ Dump, and watch the job log live.
 
 ## Usage
 
-- **Databases** — register/edit/test databases. Dump and Restore are
-  disabled while another job is running on the same database.
-- **Dumps** — history with download/delete, grouped by storage
-  destination. Upload a file dump (`pg_dump -Fc` or gzipped mongo
-  archive) to restore it.
+- **Databases** — register/edit/test databases. The Dump button opens the
+  workflow creator with the database preselected.
+- **Workflows** — reusable dump recipes: pick a database, when it runs
+  (manually, once at a time, or recurring hourly/daily/weekly/advanced cron),
+  and the storage destination. Run any workflow now with the play button,
+  pause/resume it, and see next/last run plus errors.
+- **Dumps** — history with download/delete, grouped by storage destination.
+  Upload a file dump (`pg_dump -Fc` or gzipped mongo archive) to restore it.
 - **Jobs** — live log tail, cancel while running.
-- **Settings** — storage destinations: register any number of
-  S3-compatible buckets (endpoint/bucket/credentials, MinIO works);
-  local disk is always available. Plus CLI tool availability.
+- **Settings** — storage destinations: register any number of S3-compatible
+  buckets (endpoint/bucket/credentials, MinIO works); local disk is always
+  available. Plus CLI tool availability.
 
-When dumping you pick the database and the destination to store it in.
-When restoring you pick any dump from history — regardless of where it
-is stored — and any registered target database of the same engine; it
-does not have to be the database the dump came from.
+When a workflow runs it stores the dump under the workflow's chosen
+destination, and the Dumps page shows which workflow produced it. Scheduled
+runs missed while ku-dump was down are skipped (the next occurrence is
+computed at startup). Destinations referenced by a workflow cannot be
+deleted until the workflow is updated or removed.
 
 Restores are destructive: target objects are dropped first
 (`pg_restore --clean --if-exists`, `mongorestore --drop`). The UI and the
