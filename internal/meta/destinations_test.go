@@ -52,6 +52,52 @@ func TestMigrateLegacyS3(t *testing.T) {
 	}
 }
 
+func TestDestinationKinds(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+
+	s3ID, err := st.CreateDestination(ctx, &Destination{Name: "minio", Kind: "s3",
+		Endpoint: "http://e", Bucket: "b", AccessKey: "k", SecretEnc: "s"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	localID, err := st.CreateDestination(ctx, &Destination{Name: "nas", Kind: "local", RootPath: "/srv/backups"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sftpID, err := st.CreateDestination(ctx, &Destination{Name: "offsite", Kind: "sftp",
+		Host: "backup.example.com", Port: 2222, Username: "backup", AuthType: "key",
+		SecretEnc: "KEYDATA", RemoteDir: "/srv/dumps"})
+	if err != nil {
+		t.Fatalf("insert sftp kind rejected: %v", err)
+	}
+
+	d, err := st.GetDestination(ctx, localID)
+	if err != nil || d.Kind != "local" || d.RootPath != "/srv/backups" {
+		t.Fatalf("local = %+v, %v", d, err)
+	}
+	d, err = st.GetDestination(ctx, sftpID)
+	if err != nil || d.Host != "backup.example.com" || d.Port != 2222 ||
+		d.Username != "backup" || d.AuthType != "key" || d.RemoteDir != "/srv/dumps" || d.SecretEnc != "KEYDATA" {
+		t.Fatalf("sftp = %+v, %v", d, err)
+	}
+
+	d.Port = 22
+	if err := st.UpdateDestination(ctx, d); err != nil {
+		t.Fatal(err)
+	}
+	d, _ = st.GetDestination(ctx, sftpID)
+	if d.Port != 22 {
+		t.Fatalf("port after update = %d", d.Port)
+	}
+
+	rows, err := st.ListDestinations(ctx)
+	if err != nil || len(rows) != 3 {
+		t.Fatalf("list = %d, %v", len(rows), err)
+	}
+	_ = s3ID
+}
+
 func TestDestinationCRUD(t *testing.T) {
 	st := testStore(t)
 	ctx := context.Background()
