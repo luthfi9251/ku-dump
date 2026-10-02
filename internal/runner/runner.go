@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -220,4 +221,55 @@ func TailString(s string, n int) string {
 		return strings.Join(lines, "\n")
 	}
 	return strings.Join(lines[len(lines)-n:], "\n")
+}
+
+var ErrToolsMissing = errors.New("missing tools")
+var ErrStorageUnavailable = errors.New("storage unavailable")
+
+// StartDump is the single path for creating a dump run: validate engine,
+// tools and storage, insert the dump row, create the guarded job, start it.
+func (r *Runner) StartDump(ctx context.Context, databaseID, destID int64,
+	label string, workflowID, createdBy int64) (int64, int64, error) {
+	db, err := r.st.GetDatabase(ctx, databaseID)
+	if err != nil {
+		return 0, 0, fmt.Errorf("database not found: %w", err)
+	}
+	eng := r.engines[db.Engine]
+	if eng == nil {
+		return 0, 0, fmt.Errorf("unknown engine: %s", db.Engine)
+	}
+	if missing := eng.ToolsMissing(); len(missing) > 0 {
+		return 0, 0, fmt.Errorf("%w: %s", ErrToolsMissing, strings.Join(missing, ", "))
+	}
+	storageKind := "local"
+	if destID != 0 {
+		dest, err := r.st.GetDestination(ctx, destID)
+		if err != nil {
+			return 0, 0, fmt.Errorf("storage destination not found")
+		}
+		storageKind = dest.Kind
+	}
+	if _, err := r.newStore(ctx, destID); err != nil {
+		return 0, 0, fmt.Errorf("%w: %s", ErrStorageUnavailable, err)
+	}
+	if label == "" {
+		label = db.Name + " " + time.Now().Format("2006-01-02 15:04")
+	}
+	dumpID, err := r.st.CreateDump(ctx, &meta.Dump{
+		DatabaseID: db.ID, Engine: db.Engine, Label: label, Storage: storageKind,
+		DestID: destID, SourceDB: db.DBName, Status: "pending", CreatedBy: createdBy,
+		WorkflowID: workflowID,
+	})
+	if err != nil {
+		return 0, 0, err
+	}
+	jobID, err := r.st.CreateJobGuarded(ctx, &meta.Job{Type: "dump", DatabaseID: db.ID, DumpID: &dumpID})
+	if err != nil {
+		if errors.Is(err, meta.ErrJobActive) {
+			_ = r.st.DeleteDump(ctx, dumpID)
+		}
+		return 0, 0, err
+	}
+	r.Start(jobID)
+	return jobID, dumpID, nil
 }
