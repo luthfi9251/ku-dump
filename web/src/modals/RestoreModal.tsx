@@ -4,7 +4,8 @@ import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { AlertTriangle, CheckCircle2, History, HardDriveUpload, UploadCloud } from 'lucide-react'
 import { api, ApiError } from '../lib/api'
-import type { DatabaseDTO, DumpDTO, Engine } from '../lib/types'
+import { fmtSize } from '../lib/format'
+import type { DatabaseDTO, DumpDTO, Engine, StorageDestinationDTO } from '../lib/types'
 import { Badge, Button, Field, Modal, Select, Spinner } from '../ui'
 
 type Tab = 'history' | 'upload'
@@ -24,6 +25,7 @@ export default function RestoreModal({
 }) {
   const [tab, setTab] = useState<Tab>('history')
   const [dumpId, setDumpId] = useState(source?.id ?? '')
+  const [destFilter, setDestFilter] = useState('')
   const [targetId, setTargetId] = useState(target?.id ?? '')
   const [uploadEngine, setUploadEngine] = useState<Engine>(target?.engine ?? 'postgres')
   const [uploadedDump, setUploadedDump] = useState<DumpDTO | null>(null)
@@ -44,16 +46,32 @@ export default function RestoreModal({
     queryFn: () => api.get<DatabaseDTO[]>('/api/databases'),
     enabled: open,
   })
+  const dests = useQuery({
+    queryKey: ['storage-destinations'],
+    queryFn: () => api.get<StorageDestinationDTO[]>('/api/storage/destinations'),
+    enabled: open,
+  })
 
   const usableDumps = useMemo(
     () =>
       (dumps.data ?? []).filter((d) => {
         if (d.status !== 'ready' && d.status !== 'uploaded') return false
         if (target && d.engine !== target.engine) return false
+        if (destFilter === 'local' ? d.destId !== '' : destFilter !== '' && d.destId !== destFilter) return false
         return true
       }),
-    [dumps.data, target],
+    [dumps.data, target, destFilter],
   )
+
+  const grouped = useMemo(() => {
+    const byDest = new Map<string, DumpDTO[]>()
+    for (const d of usableDumps) {
+      const key = d.destId || 'local'
+      if (!byDest.has(key)) byDest.set(key, [])
+      byDest.get(key)!.push(d)
+    }
+    return byDest
+  }, [usableDumps])
   const engineFilter = source?.engine ?? target?.engine ?? uploadedDump?.engine
   const targets = useMemo(
     () => (dbs.data ?? []).filter((db) => !engineFilter || db.engine === engineFilter),
@@ -128,19 +146,34 @@ export default function RestoreModal({
         )}
 
         {tab === 'history' && (
-          <Field label="Source Dump Archive">
-            <Select value={dumpId} onChange={(e) => setDumpId(e.target.value)}>
-              <option value="">Select a dump from history…</option>
-              {source && <option value={source.id}>{source.label} (Selected)</option>}
-              {usableDumps
-                .filter((d) => d.id !== source?.id)
-                .map((d) => (
-                  <option key={d.id} value={d.id}>
-                    [{d.engine}] {d.label} — {d.databaseName || 'Uploaded File'} ({d.status})
-                  </option>
+          <>
+            <Field label="Storage Destination">
+              <Select value={destFilter} onChange={(e) => setDestFilter(e.target.value)}>
+                <option value="">All destinations</option>
+                <option value="local">Local (built-in)</option>
+                {(dests.data ?? []).map((d) => (
+                  <option key={d.id} value={d.id}>{d.name} ({d.kind})</option>
                 ))}
-            </Select>
-          </Field>
+              </Select>
+            </Field>
+            <Field label="Source Dump Archive" hint="Newest first, grouped by destination">
+              <Select value={dumpId} onChange={(e) => setDumpId(e.target.value)}>
+                <option value="">Select a dump from history…</option>
+                {source && <option value={source.id}>{source.label} (Selected)</option>}
+                {[...grouped.entries()].map(([destKey, list]) => (
+                  <optgroup key={destKey} label={destKey === 'local' ? 'Local (built-in)' : dests.data?.find((d) => d.id === destKey)?.name ?? destKey}>
+                    {list
+                      .filter((d) => d.id !== source?.id)
+                      .map((d) => (
+                        <option key={d.id} value={d.id}>
+                          [{d.engine}] {d.label} — {d.databaseName || 'uploaded'} · {fmtSize(d.sizeBytes)} · {new Date(d.createdAt).toLocaleString()}
+                        </option>
+                      ))}
+                  </optgroup>
+                ))}
+              </Select>
+            </Field>
+          </>
         )}
 
         {tab === 'upload' && (

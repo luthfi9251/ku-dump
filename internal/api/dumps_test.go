@@ -203,6 +203,38 @@ func TestUploadRestoreMagicMismatch(t *testing.T) {
 	}
 }
 
+func TestListDumpsExposesStorageKind(t *testing.T) {
+	h := newTestServer(t)
+	cookie := setupAndLogin(t, h)
+	dbID := createDBViaAPI(t, h, cookie)
+	// seed a dump via workflow run (fake engine, local storage)
+	rec := doJSON(t, h, "POST", "/api/workflows", map[string]any{
+		"name": "w", "databaseId": dbID, "triggerKind": "manual",
+	}, cookie)
+	var wf struct {
+		ID string `json:"id"`
+	}
+	json.Unmarshal(rec.Body.Bytes(), &wf)
+	rec = doJSON(t, h, "POST", "/api/workflows/"+wf.ID+"/run", nil, cookie)
+	if rec.Code != 201 {
+		t.Fatalf("run = %d: %s", rec.Code, rec.Body.String())
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		rec = doJSON(t, h, "GET", "/api/dumps", nil, cookie)
+		var dumps []map[string]any
+		json.Unmarshal(rec.Body.Bytes(), &dumps)
+		if len(dumps) > 0 {
+			if dumps[0]["storageKind"] != "local" {
+				t.Fatalf("storageKind = %v", dumps[0]["storageKind"])
+			}
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatal("dump never appeared")
+}
+
 func TestUploadRestoreBadEngine(t *testing.T) {
 	h := newTestServer(t)
 	cookie := setupAndLogin(t, h)

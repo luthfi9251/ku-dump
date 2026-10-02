@@ -27,6 +27,7 @@ export interface DumpDTO {
   destName: string
   workflowName: string
   status: DumpStatus
+  storageKind: 'local' | 's3' | 'sftp'
   sizeBytes: number
   sourceDb: string
   createdBy: string

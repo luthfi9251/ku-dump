@@ -2,7 +2,7 @@ import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Cloud, HardDrive } from 'lucide-react'
+import { Cloud, HardDrive, Server } from 'lucide-react'
 import { api, ApiError } from '../lib/api'
 import type { DatabaseDTO, StorageDestinationDTO, TriggerKind, WorkflowDTO } from '../lib/types'
 import { Button, Field, Input, Modal, Select, Spinner } from '../ui'
@@ -257,24 +257,27 @@ export default function WorkflowModal({
               </div>
               <span className="mt-1 truncate text-[11px] text-slate-500">Save on server disk</span>
             </label>
-            {(dests.data ?? []).map((d) => (
-              <label
-                key={d.id}
-                className={`flex cursor-pointer flex-col rounded-xl border p-4 transition-all ${
-                  destId === d.id
-                    ? 'border-indigo-500 bg-indigo-950/40 text-indigo-200 shadow-md shadow-indigo-600/10'
-                    : 'border-slate-800 bg-slate-950/60 text-slate-400 hover:border-slate-700 hover:text-slate-200'
-                }`}
-                onClick={() => setDestId(d.id)}
-              >
-                <div className="flex items-center gap-2 text-sm font-semibold">
-                  <input type="radio" checked={destId === d.id} onChange={() => setDestId(d.id)} className="hidden" />
-                  <Cloud size={18} className={destId === d.id ? 'text-indigo-400' : 'text-slate-400'} />
-                  {d.name}
-                </div>
-                <span className="mt-1 truncate text-[11px] text-slate-500">{d.bucket}</span>
-              </label>
-            ))}
+            {(dests.data ?? []).map((d) => {
+              const Icon = d.kind === 's3' ? Cloud : d.kind === 'sftp' ? Server : HardDrive
+              return (
+                <label
+                  key={d.id}
+                  className={`flex cursor-pointer flex-col rounded-xl border p-4 transition-all ${
+                    destId === d.id
+                      ? 'border-indigo-500 bg-indigo-950/40 text-indigo-200 shadow-md shadow-indigo-600/10'
+                      : 'border-slate-800 bg-slate-950/60 text-slate-400 hover:border-slate-700 hover:text-slate-200'
+                  }`}
+                  onClick={() => setDestId(d.id)}
+                >
+                  <div className="flex items-center gap-2 text-sm font-semibold">
+                    <input type="radio" checked={destId === d.id} onChange={() => setDestId(d.id)} className="hidden" />
+                    <Icon size={18} className={destId === d.id ? 'text-indigo-400' : 'text-slate-400'} />
+                    {d.name}
+                  </div>
+                  <span className="mt-1 truncate text-[11px] text-slate-500">{d.kind === 'local' ? d.rootPath : d.kind === 's3' ? d.bucket : `${d.host}:${d.port}`}</span>
+                </label>
+              )
+            })}
           </div>
           {dests.data && dests.data.length === 0 && (
             <p className="mt-2 text-[11px] text-slate-500">

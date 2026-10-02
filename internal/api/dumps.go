@@ -19,6 +19,7 @@ type dumpDTO struct {
 	DestID       string `json:"destId"`
 	DestName     string `json:"destName"`
 	Status       string `json:"status"`
+	Storage      string `json:"storageKind"`
 	SizeBytes    int64  `json:"sizeBytes"`
 	SourceDB     string `json:"sourceDb"`
 	CreatedBy    string `json:"createdBy"`
@@ -43,6 +44,7 @@ func dumpToDTO(r meta.DumpRow) dumpDTO {
 		DestID:       encIDOrEmpty(r.DestID),
 		DestName:     r.DestName,
 		Status:       r.Status,
+		Storage:      r.Storage,
 		SizeBytes:    r.SizeBytes,
 		SourceDB:     r.SourceDB,
 		CreatedBy:    encIDOrEmpty(r.CreatedBy),

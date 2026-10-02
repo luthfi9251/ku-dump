@@ -1,22 +1,11 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Archive, Cloud, Download, HardDrive, Play, Search, Trash2 } from 'lucide-react'
+import { Archive, Cloud, Download, HardDrive, Play, Search, Server, Trash2 } from 'lucide-react'
 import { api } from '../lib/api'
+import { fmtSize } from '../lib/format'
 import type { DatabaseDTO, DumpDTO, Engine, StorageDestinationDTO } from '../lib/types'
 import { Badge, Button, Input, Select, StatCard } from '../ui'
 import RestoreModal from '../modals/RestoreModal'
-
-function fmtSize(bytes: number): string {
-  if (bytes <= 0) return '—'
-  const units = ['B', 'KB', 'MB', 'GB', 'TB']
-  let v = bytes
-  let u = 0
-  while (v >= 1024 && u < units.length - 1) {
-    v /= 1024
-    u++
-  }
-  return `${v.toFixed(1)} ${units[u]}`
-}
 
 export default function Dumps() {
   const qc = useQueryClient()
@@ -137,7 +126,7 @@ export default function Dumps() {
                   </td>
                   <td className="px-5 py-4">
                     <span className="inline-flex items-center gap-1 text-xs font-medium uppercase tracking-wider text-slate-400">
-                      {d.destId === '' ? <HardDrive size={13} className="text-slate-400" /> : <Cloud size={13} className="text-sky-400" />}
+                      {d.storageKind === 's3' ? <Cloud size={13} className="text-sky-400" /> : d.storageKind === 'sftp' ? <Server size={13} className="text-violet-400" /> : <HardDrive size={13} className="text-slate-400" />}
                       {d.destName || 'local'}
                     </span>
                   </td>
