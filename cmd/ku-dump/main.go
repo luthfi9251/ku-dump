@@ -69,13 +69,23 @@ func main() {
 			return nil, fmt.Errorf("storage destination %d not found", destID)
 		}
 		secret, err := cx.Decrypt(d.SecretEnc)
-		if err != nil {
+		if err != nil && d.Kind != "local" {
 			return nil, fmt.Errorf("decrypt destination secret: %w", err)
 		}
-		return storage.NewS3(storage.S3Config{
-			Endpoint: d.Endpoint, Region: d.Region, Bucket: d.Bucket,
-			Prefix: d.Prefix, AccessKey: d.AccessKey, SecretKey: secret,
-		})
+		switch d.Kind {
+		case "local":
+			return storage.NewLocalFS(d.RootPath)
+		case "sftp":
+			return storage.NewSFTP(storage.SFTPConfig{
+				Host: d.Host, Port: d.Port, Username: d.Username,
+				AuthType: d.AuthType, Secret: secret, RemoteDir: d.RemoteDir,
+			})
+		default:
+			return storage.NewS3(storage.S3Config{
+				Endpoint: d.Endpoint, Region: d.Region, Bucket: d.Bucket,
+				Prefix: d.Prefix, AccessKey: d.AccessKey, SecretKey: secret,
+			})
+		}
 	}
 
 	if migrated, err := st.MigrateLegacyS3(ctx); err != nil {
