@@ -80,7 +80,7 @@ dialog lets you filter dumps per destination and shows file size and date.
 
 ## Security notes
 
-- Database passwords and S3 destination secrets are encrypted at rest
-  (AES-256-GCM)
+- Database passwords and storage destination secrets (S3 keys, SFTP
+  passwords/keys) are encrypted at rest (AES-256-GCM)
 - HMAC-signed session cookies, login rate limiting (5 failures / 15 min)
 - External IDs are opaque; uploads are size-capped and magic-byte checked

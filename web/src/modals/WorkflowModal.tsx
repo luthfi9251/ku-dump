@@ -281,7 +281,7 @@ export default function WorkflowModal({
           </div>
           {dests.data && dests.data.length === 0 && (
             <p className="mt-2 text-[11px] text-slate-500">
-              No S3 destinations configured — add one in Settings, or store locally.
+              No destinations configured yet — add one on the Destinations page, or store locally.
             </p>
           )}
         </Field>

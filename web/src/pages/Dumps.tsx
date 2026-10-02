@@ -27,7 +27,7 @@ export default function Dumps() {
   const allDumps = dumps.data ?? []
   const totalSizeBytes = allDumps.reduce((acc, d) => acc + (d.sizeBytes || 0), 0)
   const readyCount = allDumps.filter((d) => d.status === 'ready' || d.status === 'uploaded').length
-  const s3Count = allDumps.filter((d) => d.destId !== '').length
+  const offsiteCount = allDumps.filter((d) => d.storageKind !== 'local').length
 
   const rows = allDumps.filter(
     (d) =>
@@ -44,7 +44,7 @@ export default function Dumps() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-white">Database Dumps</h1>
           <p className="mt-1 text-xs text-slate-400">
-            Historical archive of all generated database dumps stored locally or on S3 storage.
+            Historical archive of all generated database dumps across local folders, S3 buckets, and remote servers.
           </p>
         </div>
       </div>
@@ -54,7 +54,7 @@ export default function Dumps() {
         <StatCard title="Total Dumps" value={allDumps.length} icon={Archive} tone="indigo" />
         <StatCard title="Storage Used" value={fmtSize(totalSizeBytes)} icon={HardDrive} tone="violet" />
         <StatCard title="Ready Dumps" value={readyCount} icon={Archive} tone="emerald" />
-        <StatCard title="S3 Offsite Copies" value={s3Count} icon={Cloud} tone="sky" />
+        <StatCard title="Offsite Copies" value={offsiteCount} icon={Cloud} tone="sky" />
       </div>
 
       {/* Filters & Search */}
