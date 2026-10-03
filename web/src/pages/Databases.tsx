@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   CheckCircle2,
@@ -28,6 +28,7 @@ export default function Databases() {
   const [restoreTarget, setRestoreTarget] = useState<DatabaseDTO | null>(null);
   const [search, setSearch] = useState("");
   const [engineFilter, setEngineFilter] = useState<string>("all");
+  const testedIdsRef = useRef<Set<string>>(new Set());
 
   const dbs = useQuery({
     queryKey: ["databases"],
@@ -45,6 +46,20 @@ export default function Databases() {
       api.post<TestResultDTO>(`/api/databases/${id}/test`),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["databases"] }),
   });
+
+  // Automated test for any database with lastTestOk === null
+  useEffect(() => {
+    if (!dbs.data) return;
+    const untested = dbs.data.filter(
+      (db) => db.lastTestOk === null && !testedIdsRef.current.has(db.id)
+    );
+    if (untested.length === 0) return;
+
+    untested.forEach((db) => {
+      testedIdsRef.current.add(db.id);
+      test.mutate(db.id);
+    });
+  }, [dbs.data]);
 
   function invalidate() {
     void qc.invalidateQueries({ queryKey: ["databases"] });
@@ -213,6 +228,11 @@ export default function Databases() {
                     <Badge tone="red">
                       <AlertTriangle size={12} className="inline mr-1" />
                       missing: {db.toolsMissing.join(", ")}
+                    </Badge>
+                  ) : (test.isPending && test.variables === db.id) || (db.lastTestOk === null && testedIdsRef.current.has(db.id)) ? (
+                    <Badge tone="indigo" pulse>
+                      <Spinner className="h-3 w-3 inline mr-1" />
+                      Testing connection...
                     </Badge>
                   ) : db.lastTestOk === null ? (
                     <Badge tone="slate">Not tested</Badge>

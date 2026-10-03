@@ -5,13 +5,28 @@ import { useAuth } from './auth'
 import { api } from './lib/api'
 import type { JobDTO, WorkflowDTO } from './lib/types'
 
-const links = [
-  { to: '/', label: 'Databases', icon: Database },
-  { to: '/workflows', label: 'Workflows', icon: CalendarClock },
-  { to: '/dumps', label: 'Dumps', icon: Archive },
-  { to: '/jobs', label: 'Jobs', icon: ListChecks },
-  { to: '/destinations', label: 'Destinations', icon: Server },
-  { to: '/settings', label: 'Settings', icon: Settings },
+const navGroups = [
+  {
+    title: 'Connections',
+    items: [
+      { to: '/', label: 'Databases', icon: Database },
+      { to: '/destinations', label: 'Destinations', icon: Server },
+    ],
+  },
+  {
+    title: 'Automation',
+    items: [
+      { to: '/workflows', label: 'Workflows', icon: CalendarClock },
+      { to: '/jobs', label: 'Jobs', icon: ListChecks },
+    ],
+  },
+  {
+    title: 'Storage & System',
+    items: [
+      { to: '/dumps', label: 'Dumps', icon: Archive },
+      { to: '/settings', label: 'Settings', icon: Settings },
+    ],
+  },
 ]
 
 export default function Layout() {
@@ -54,29 +69,36 @@ export default function Layout() {
         </div>
 
         {/* Main Navigation Links */}
-        <nav className="flex-1 space-y-1.5 px-3 py-6">
-          {links.map(({ to, label, icon: Icon }) => (
-            <NavLink
-              key={to}
-              to={to}
-              end={to === '/'}
-              className={({ isActive }) => cnNav(isActive)}
-            >
-              <Icon size={18} className="transition-transform group-hover:scale-110" />
-              <span className="flex-1 font-medium">{label}</span>
-              {label === 'Jobs' && runningCount > 0 && (
-                <span className="flex items-center gap-1 rounded-full bg-amber-500/20 px-2 py-0.5 text-[11px] font-semibold text-amber-400 border border-amber-500/30 animate-pulse">
-                  <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
-                  {runningCount} active
-                </span>
-              )}
-              {label === 'Workflows' && failingWorkflows > 0 && (
-                <span className="flex items-center gap-1 rounded-full bg-rose-500/20 px-2 py-0.5 text-[11px] font-semibold text-rose-400 border border-rose-500/30">
-                  <span className="h-1.5 w-1.5 rounded-full bg-rose-400" />
-                  {failingWorkflows} error{failingWorkflows > 1 ? 's' : ''}
-                </span>
-              )}
-            </NavLink>
+        <nav className="flex-1 space-y-5 px-3 py-5 overflow-y-auto">
+          {navGroups.map((group) => (
+            <div key={group.title} className="space-y-1">
+              <div className="px-3.5 mb-1.5 text-[10px] font-semibold tracking-wider text-slate-500 uppercase">
+                {group.title}
+              </div>
+              {group.items.map(({ to, label, icon: Icon }) => (
+                <NavLink
+                  key={to}
+                  to={to}
+                  end={to === '/'}
+                  className={({ isActive }) => cnNav(isActive)}
+                >
+                  <Icon size={18} className="transition-transform group-hover:scale-110" />
+                  <span className="flex-1 font-medium">{label}</span>
+                  {label === 'Jobs' && runningCount > 0 && (
+                    <span className="flex items-center gap-1 rounded-full bg-amber-500/20 px-2 py-0.5 text-[11px] font-semibold text-amber-400 border border-amber-500/30 animate-pulse">
+                      <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+                      {runningCount} active
+                    </span>
+                  )}
+                  {label === 'Workflows' && failingWorkflows > 0 && (
+                    <span className="flex items-center gap-1 rounded-full bg-rose-500/20 px-2 py-0.5 text-[11px] font-semibold text-rose-400 border border-rose-500/30">
+                      <span className="h-1.5 w-1.5 rounded-full bg-rose-400" />
+                      {failingWorkflows} error{failingWorkflows > 1 ? 's' : ''}
+                    </span>
+                  )}
+                </NavLink>
+              ))}
+            </div>
           ))}
         </nav>
 
@@ -117,10 +139,10 @@ export default function Layout() {
 }
 
 function cnNav(active: boolean): string {
-  return `group flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm transition-all duration-150 ${
+  return `group flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm border transition-colors duration-150 outline-none ${
     active
-      ? 'bg-gradient-to-r from-indigo-600/20 to-violet-600/10 text-indigo-300 font-semibold border border-indigo-500/30 shadow-sm'
-      : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
+      ? 'bg-gradient-to-r from-indigo-600/20 to-violet-600/10 text-indigo-300 font-semibold border-indigo-500/30 shadow-sm'
+      : 'border-transparent text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
   }`
 }
 

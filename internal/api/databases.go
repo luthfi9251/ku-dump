@@ -134,6 +134,10 @@ func (s *Server) handleCreateDatabase(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, "CONNECTION_FAILED", err.Error())
 		return
 	}
+	now := time.Now()
+	ok := true
+	db.LastTestAt = &now
+	db.LastTestOK = &ok
 	id, err := s.Store.CreateDatabase(r.Context(), &db)
 	if err != nil {
 		log.Printf("create database: %v", err)
@@ -198,12 +202,14 @@ func (s *Server) handleUpdateDatabase(w http.ResponseWriter, r *http.Request) {
 	}
 	db := p.toMeta(enc)
 	db.ID = id
-	db.LastTestAt = current.LastTestAt
-	db.LastTestOK = current.LastTestOK
 	if err := eng.TestConnection(r.Context(), db); err != nil {
 		fail(w, http.StatusBadRequest, "CONNECTION_FAILED", err.Error())
 		return
 	}
+	now := time.Now()
+	ok := true
+	db.LastTestAt = &now
+	db.LastTestOK = &ok
 	if err := s.Store.UpdateDatabase(r.Context(), &db); err != nil {
 		log.Printf("update database %d: %v", id, err)
 		fail(w, http.StatusInternalServerError, "INTERNAL", "internal error")
