@@ -13,12 +13,15 @@ type Dump struct {
 	Storage    string
 	DestID     int64
 	WorkflowID int64
-	Location   string
-	SourceDB   string
-	SizeBytes  int64
-	Status     string
-	CreatedBy  int64
-	CreatedAt  time.Time
+	// lineage, see lineage.go
+	ParentDumpID int64
+	ParentJobID  int64
+	Location     string
+	SourceDB     string
+	SizeBytes    int64
+	Status       string
+	CreatedBy    int64
+	CreatedAt    time.Time
 }
 
 type DumpRow struct {
@@ -28,13 +31,14 @@ type DumpRow struct {
 	WorkflowName string
 }
 
-const dumpCols = `id, database_id, engine, label, storage, location, source_db, size_bytes, status, created_by, created_at, dest_id, workflow_id`
+const dumpCols = `id, database_id, engine, label, storage, location, source_db, size_bytes, status, created_by, created_at, dest_id, workflow_id, parent_dump_id, parent_job_id`
 
 func scanDump(row rowScanner) (*Dump, error) {
 	var d Dump
 	var created string
 	err := row.Scan(&d.ID, &d.DatabaseID, &d.Engine, &d.Label, &d.Storage, &d.Location,
-		&d.SourceDB, &d.SizeBytes, &d.Status, &d.CreatedBy, &created, &d.DestID, &d.WorkflowID)
+		&d.SourceDB, &d.SizeBytes, &d.Status, &d.CreatedBy, &created, &d.DestID, &d.WorkflowID,
+		&d.ParentDumpID, &d.ParentJobID)
 	if err != nil {
 		return nil, err
 	}
@@ -61,6 +65,7 @@ func (s *Store) GetDump(ctx context.Context, id int64) (*Dump, error) {
 func (s *Store) ListDumps(ctx context.Context) ([]DumpRow, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT d.id, d.database_id, d.engine, d.label, d.storage, d.location,
 		d.source_db, d.size_bytes, d.status, d.created_by, d.created_at, d.dest_id, d.workflow_id,
+		d.parent_dump_id, d.parent_job_id,
 		IFNULL(db.name, ''),
 		CASE WHEN d.dest_id = 0 THEN 'local' ELSE IFNULL(sd.name, '') END,
 		IFNULL(wf.name, '')
@@ -79,6 +84,7 @@ func (s *Store) ListDumps(ctx context.Context) ([]DumpRow, error) {
 		var created string
 		err := rows.Scan(&r.ID, &r.DatabaseID, &r.Engine, &r.Label, &r.Storage, &r.Location,
 			&r.SourceDB, &r.SizeBytes, &r.Status, &r.CreatedBy, &created, &r.DestID, &r.WorkflowID,
+			&r.ParentDumpID, &r.ParentJobID,
 			&r.DatabaseName, &r.DestName, &r.WorkflowName)
 		if err != nil {
 			return nil, err
@@ -100,7 +106,28 @@ func (s *Store) FailPendingDumps(ctx context.Context) error {
 	return err
 }
 
+// DeleteDump removes a dump row. Dumps that descended directly from it are
+// re-parented to its own parent so the lineage graph stays connected.
 func (s *Store) DeleteDump(ctx context.Context, id int64) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM dumps WHERE id = ?`, id)
-	return err
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var pd, pj int64
+	err = tx.QueryRowContext(ctx, `SELECT parent_dump_id, parent_job_id FROM dumps WHERE id = ?`, id).Scan(&pd, &pj)
+	if err == ErrNotFound {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE dumps SET parent_dump_id = ?, parent_job_id = ?
+		WHERE parent_dump_id = ? AND parent_job_id = 0`, pd, pj, id); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM dumps WHERE id = ?`, id); err != nil {
+		return err
+	}
+	return tx.Commit()
 }

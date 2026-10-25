@@ -1,11 +1,14 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Archive, Cloud, Download, HardDrive, Play, Search, Server, Trash2 } from 'lucide-react'
+import { useSearchParams } from 'react-router-dom'
+import { Archive, Cloud, Download, GitBranch, HardDrive, Play, Search, Server, Table2, Trash2 } from 'lucide-react'
 import { api } from '../lib/api'
 import { fmtSize } from '../lib/format'
 import type { DatabaseDTO, DumpDTO, Engine, StorageDestinationDTO } from '../lib/types'
 import { Badge, Button, Input, Select, StatCard } from '../ui'
 import RestoreModal from '../modals/RestoreModal'
+import DumpGraph from '../DumpGraph'
+import JobDrawer from '../JobDrawer'
 
 export default function Dumps() {
   const qc = useQueryClient()
@@ -14,15 +17,45 @@ export default function Dumps() {
   const [dbFilter, setDbFilter] = useState('')
   const [storageFilter, setStorageFilter] = useState('')
   const [restoreSource, setRestoreSource] = useState<DumpDTO | null>(null)
+  const [jobDrawer, setJobDrawer] = useState<string | null>(null)
+  // view, graph database and selected point live in the URL so a point can be shared
+  const [params, setParams] = useSearchParams()
+  const view = params.get('view') === 'graph' ? 'graph' : 'table'
+  const selectedNode = params.get('node')
+
+  function setParam(key: string, value: string | null) {
+    const next = new URLSearchParams(params)
+    if (value) next.set(key, value)
+    else next.delete(key)
+    if (key === 'view' || key === 'db') next.delete('node')
+    setParams(next, { replace: true })
+  }
 
   const dumps = useQuery({ queryKey: ['dumps'], queryFn: () => api.get<DumpDTO[]>('/api/dumps'), refetchInterval: 10000 })
   const dbs = useQuery({ queryKey: ['databases'], queryFn: () => api.get<DatabaseDTO[]>('/api/databases') })
   const dests = useQuery({ queryKey: ['storage-destinations'], queryFn: () => api.get<StorageDestinationDTO[]>('/api/storage/destinations') })
 
+  // graph focus: the database from the URL, else the one with the newest dump
+  const allDbs = dbs.data ?? []
+  const graphDb =
+    allDbs.find((db) => db.id === params.get('db')) ??
+    allDbs.find((db) => db.id === (dumps.data ?? []).find((d) => allDbs.some((x) => x.id === d.databaseId))?.databaseId) ??
+    allDbs[0]
+
   const remove = useMutation({
     mutationFn: (id: string) => api.del(`/api/dumps/${id}`),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ['dumps'] }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['dumps'] })
+      void qc.invalidateQueries({ queryKey: ['dump-graph'] })
+    },
   })
+
+  function confirmDelete(d: DumpDTO) {
+    if (confirm(`Delete dump "${d.label}"? The stored archive file will be permanently deleted.`)) {
+      remove.mutate(d.id)
+      if (selectedNode === `d-${d.id}`) setParam('node', null)
+    }
+  }
 
   const allDumps = dumps.data ?? []
   const totalSizeBytes = allDumps.reduce((acc, d) => acc + (d.sizeBytes || 0), 0)
@@ -47,6 +80,23 @@ export default function Dumps() {
             Historical archive of all generated database dumps across local folders, S3 buckets, and remote servers.
           </p>
         </div>
+        <div className="flex rounded-xl border border-slate-800 bg-slate-950/60 p-1" role="tablist" aria-label="Dumps view">
+          {(['table', 'graph'] as const).map((v) => (
+            <button
+              key={v}
+              type="button"
+              role="tab"
+              aria-selected={view === v}
+              onClick={() => setParam('view', v === 'graph' ? 'graph' : null)}
+              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold tracking-wide transition-all ${
+                view === v ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/25' : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              {v === 'table' ? <Table2 size={14} /> : <GitBranch size={14} />}
+              {v === 'table' ? 'Table' : 'Graph'}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Overview Stat Cards */}
@@ -57,6 +107,54 @@ export default function Dumps() {
         <StatCard title="Offsite Copies" value={offsiteCount} icon={Cloud} tone="sky" />
       </div>
 
+      {view === 'graph' && (
+        <div className="space-y-3">
+          <div className="flex flex-col gap-2 rounded-xl border border-slate-800 bg-slate-900/60 p-3 backdrop-blur-md sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-xs text-slate-400">
+              Shows the selected database with the databases its data came from (above) and went to (below), linked by restores.
+            </p>
+            <Select
+              value={graphDb?.id ?? ''}
+              onChange={(e) => setParam('db', e.target.value)}
+              className="w-56 bg-slate-950/80"
+              aria-label="Database"
+              disabled={allDbs.length === 0}
+            >
+              {(['postgres', 'mongodb'] as Engine[]).map((eng) => {
+                const list = allDbs.filter((db) => db.engine === eng)
+                if (list.length === 0) return null
+                return (
+                  <optgroup key={eng} label={eng === 'postgres' ? 'PostgreSQL' : 'MongoDB'}>
+                    {list.map((db) => (
+                      <option key={db.id} value={db.id}>
+                        {db.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                )
+              })}
+            </Select>
+          </div>
+          {graphDb ? (
+            <DumpGraph
+              engine={graphDb.engine}
+              databaseId={graphDb.id}
+              selectedId={selectedNode}
+              onSelect={(id) => setParam('node', id)}
+              onRestore={setRestoreSource}
+              onDelete={confirmDelete}
+              onOpenJob={setJobDrawer}
+            />
+          ) : (
+            <div className="rounded-2xl border border-slate-800 bg-slate-900/80 px-6 py-12 text-center text-sm text-slate-500">
+              {dbs.isLoading ? 'Loading databases…' : 'Register a database to see its dump graph.'}
+            </div>
+          )}
+        </div>
+      )}
+
+      {view === 'table' && (
+      <>
       {/* Filters & Search */}
       <div className="flex flex-col gap-3 md:flex-row md:items-center justify-between rounded-xl border border-slate-800 bg-slate-900/60 p-3 backdrop-blur-md">
         <div className="relative flex-1">
@@ -167,10 +265,7 @@ export default function Dumps() {
                         variant="ghost"
                         className="hover:text-rose-400"
                         disabled={d.status === 'pending'}
-                        onClick={() => {
-                          if (confirm(`Delete dump "${d.label}"? The stored archive file will be permanently deleted.`))
-                            remove.mutate(d.id)
-                        }}
+                        onClick={() => confirmDelete(d)}
                         title="Delete Dump"
                       >
                         <Trash2 size={14} />
@@ -192,14 +287,21 @@ export default function Dumps() {
         </div>
       </div>
 
+      </>
+      )}
+
       {restoreSource && (
         <RestoreModal
           open
           onClose={() => setRestoreSource(null)}
           source={restoreSource}
-          onStarted={() => void qc.invalidateQueries({ queryKey: ['dumps'] })}
+          onStarted={() => {
+            void qc.invalidateQueries({ queryKey: ['dumps'] })
+            void qc.invalidateQueries({ queryKey: ['dump-graph'] })
+          }}
         />
       )}
+      {jobDrawer && <JobDrawer jobId={jobDrawer} onClose={() => setJobDrawer(null)} />}
     </div>
   )
 }

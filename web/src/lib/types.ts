@@ -104,3 +104,30 @@ export interface WorkflowDTO {
   nextRunAt: string
   createdAt: string
 }
+
+export interface GraphLaneDTO {
+  id: string
+  kind: 'database' | 'deleted' | 'upload'
+  databaseId: string
+  name: string
+}
+
+export interface GraphNodeDTO {
+  id: string
+  kind: 'dump' | 'restore'
+  lane: string
+  at: string
+  status: DumpStatus | JobStatus
+  parent?: string
+  source?: string
+  sourceDeleted?: boolean
+  jobId?: string
+  finishedAt?: string
+  dump?: DumpDTO
+}
+
+export interface DumpGraphDTO {
+  engine: Engine
+  lanes: GraphLaneDTO[]
+  nodes: GraphNodeDTO[]
+}

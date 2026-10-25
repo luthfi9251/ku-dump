@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -301,6 +302,9 @@ func (r *Runner) StartDump(ctx context.Context, databaseID, destID int64,
 			_ = r.st.DeleteDump(ctx, dumpID)
 		}
 		return 0, 0, err
+	}
+	if err := r.st.SetDumpParent(ctx, dumpID, db.ID, jobID); err != nil {
+		log.Printf("record lineage of dump %d: %v", dumpID, err)
 	}
 	r.Start(jobID)
 	return jobID, dumpID, nil

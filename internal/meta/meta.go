@@ -129,6 +129,25 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	var hasLineage int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('dumps') WHERE name = 'parent_job_id'`).Scan(&hasLineage); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err := ensureColumn(db, "dumps", "parent_dump_id", `ALTER TABLE dumps ADD COLUMN parent_dump_id INTEGER NOT NULL DEFAULT 0`); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err := ensureColumn(db, "dumps", "parent_job_id", `ALTER TABLE dumps ADD COLUMN parent_job_id INTEGER NOT NULL DEFAULT 0`); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if hasLineage == 0 {
+		if err := backfillLineage(db); err != nil {
+			db.Close()
+			return nil, err
+		}
+	}
 	if err := rebuildDestinationsTable(db); err != nil {
 		db.Close()
 		return nil, err
