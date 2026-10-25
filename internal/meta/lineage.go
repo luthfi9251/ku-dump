@@ -39,7 +39,7 @@ func stateBefore(ctx context.Context, q interface {
 	return dumpID.Int64, 0, nil
 }
 
-// SetDumpParent records the lineage of a dump whose job was just created.
+// SetDumpParent records the lineage and branch of a dump whose job was just created.
 // Called after CreateJobGuarded succeeds, when no other job can change the
 // database's state any more.
 func (s *Store) SetDumpParent(ctx context.Context, dumpID, databaseID, jobID int64) error {
@@ -47,7 +47,12 @@ func (s *Store) SetDumpParent(ctx context.Context, dumpID, databaseID, jobID int
 	if err != nil {
 		return err
 	}
-	_, err = s.db.ExecContext(ctx, `UPDATE dumps SET parent_dump_id = ?, parent_job_id = ? WHERE id = ?`, pd, pj, dumpID)
+	branchID, err := dumpBranch(ctx, s.db, databaseID, pd, pj)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `UPDATE dumps SET parent_dump_id = ?, parent_job_id = ?, branch_id = ? WHERE id = ?`,
+		pd, pj, branchID, dumpID)
 	return err
 }
 
@@ -103,6 +108,7 @@ type RestoreRow struct {
 	DumpID       int64
 	DumpExists   bool
 	Status       string
+	BranchID     int64
 	CreatedAt    time.Time
 	FinishedAt   *time.Time
 }
@@ -112,7 +118,7 @@ type RestoreRow struct {
 func (s *Store) ListRestores(ctx context.Context) ([]RestoreRow, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT j.id, j.database_id, IFNULL(db.name, ''),
 		IFNULL(db.engine, IFNULL(dp.engine, '')), IFNULL(j.dump_id, 0), dp.id IS NOT NULL,
-		j.status, j.created_at, j.finished_at
+		j.status, j.branch_id, j.created_at, j.finished_at
 		FROM jobs j
 		LEFT JOIN databases db ON db.id = j.database_id
 		LEFT JOIN dumps dp ON dp.id = j.dump_id
@@ -128,7 +134,7 @@ func (s *Store) ListRestores(ctx context.Context) ([]RestoreRow, error) {
 		var created string
 		var finished sql.NullString
 		if err := rows.Scan(&r.JobID, &r.DatabaseID, &r.DatabaseName, &r.Engine, &r.DumpID, &r.DumpExists,
-			&r.Status, &created, &finished); err != nil {
+			&r.Status, &r.BranchID, &created, &finished); err != nil {
 			return nil, err
 		}
 		r.CreatedAt = parseTime(created)

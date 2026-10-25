@@ -53,15 +53,17 @@ Dump, and watch the job log live.
   see next/last run plus errors.
 - **Dumps** — history with download/delete, grouped by storage destination.
   Upload a file dump (`pg_dump -Fc` or gzipped mongo archive) to restore it.
-- **Dumps → Graph** — the same history as a lineage graph, one lane per
-  database. Pick a database to see it together with the databases its data
-  came from (above) and went to (below); unrelated databases are hidden. The
-  timeline opens at its newest (right) end. Lines show where each dump's data came from: the
-  previous dump of the same database, or the dump that was last restored
-  into it, including restores across databases (prod → dev) and resets to an
-  older point. Click a dump to see its origin chain and restore it to any
-  database of the same engine; click a restore to open its job log. The
-  selected point is kept in the URL (`/dumps?view=graph&db=…&node=…`) for sharing.
+- **Dumps → Graph** — the history of one database as branches, like git.
+  Every dump joins the branch that is active on its database. Restoring the
+  newest dump of a branch continues that branch; restoring an older point, or
+  a dump of another database or an uploaded file, starts a new branch. Each
+  branch gets its own row and a random name you can rename. Databases the
+  selected one got data from (above) or gave data to (below) are shown as one
+  compact row each. The restore dialog says beforehand whether a restore will
+  continue a branch or start a new one. Drag or scroll to move back in time;
+  the view opens at the newest (right) end. Click a dump for its origin chain
+  and **Restore to…**, a restore for its job log. The selected database and
+  point are kept in the URL (`/dumps?view=graph&db=…&node=…`).
 - **Jobs** — live log tail, cancel while running.
 - **Destinations** — reusable storage targets on their own page: local
   folders (any absolute path), S3-compatible buckets, or remote servers

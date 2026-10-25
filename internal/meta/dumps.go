@@ -16,6 +16,7 @@ type Dump struct {
 	// lineage, see lineage.go
 	ParentDumpID int64
 	ParentJobID  int64
+	BranchID     int64
 	Location     string
 	SourceDB     string
 	SizeBytes    int64
@@ -31,14 +32,14 @@ type DumpRow struct {
 	WorkflowName string
 }
 
-const dumpCols = `id, database_id, engine, label, storage, location, source_db, size_bytes, status, created_by, created_at, dest_id, workflow_id, parent_dump_id, parent_job_id`
+const dumpCols = `id, database_id, engine, label, storage, location, source_db, size_bytes, status, created_by, created_at, dest_id, workflow_id, parent_dump_id, parent_job_id, branch_id`
 
 func scanDump(row rowScanner) (*Dump, error) {
 	var d Dump
 	var created string
 	err := row.Scan(&d.ID, &d.DatabaseID, &d.Engine, &d.Label, &d.Storage, &d.Location,
 		&d.SourceDB, &d.SizeBytes, &d.Status, &d.CreatedBy, &created, &d.DestID, &d.WorkflowID,
-		&d.ParentDumpID, &d.ParentJobID)
+		&d.ParentDumpID, &d.ParentJobID, &d.BranchID)
 	if err != nil {
 		return nil, err
 	}
@@ -65,7 +66,7 @@ func (s *Store) GetDump(ctx context.Context, id int64) (*Dump, error) {
 func (s *Store) ListDumps(ctx context.Context) ([]DumpRow, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT d.id, d.database_id, d.engine, d.label, d.storage, d.location,
 		d.source_db, d.size_bytes, d.status, d.created_by, d.created_at, d.dest_id, d.workflow_id,
-		d.parent_dump_id, d.parent_job_id,
+		d.parent_dump_id, d.parent_job_id, d.branch_id,
 		IFNULL(db.name, ''),
 		CASE WHEN d.dest_id = 0 THEN 'local' ELSE IFNULL(sd.name, '') END,
 		IFNULL(wf.name, '')
@@ -84,7 +85,7 @@ func (s *Store) ListDumps(ctx context.Context) ([]DumpRow, error) {
 		var created string
 		err := rows.Scan(&r.ID, &r.DatabaseID, &r.Engine, &r.Label, &r.Storage, &r.Location,
 			&r.SourceDB, &r.SizeBytes, &r.Status, &r.CreatedBy, &created, &r.DestID, &r.WorkflowID,
-			&r.ParentDumpID, &r.ParentJobID,
+			&r.ParentDumpID, &r.ParentJobID, &r.BranchID,
 			&r.DatabaseName, &r.DestName, &r.WorkflowName)
 		if err != nil {
 			return nil, err

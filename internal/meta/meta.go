@@ -84,6 +84,12 @@ CREATE TABLE IF NOT EXISTS storage_destinations (
   remote_dir TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+CREATE TABLE IF NOT EXISTS branches (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  database_id INTEGER NOT NULL,
+  name        TEXT NOT NULL,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
 CREATE TABLE IF NOT EXISTS dump_workflows (
   id           INTEGER PRIMARY KEY AUTOINCREMENT,
   name         TEXT NOT NULL,
@@ -144,6 +150,25 @@ func Open(path string) (*Store, error) {
 	}
 	if hasLineage == 0 {
 		if err := backfillLineage(db); err != nil {
+			db.Close()
+			return nil, err
+		}
+	}
+	var hasBranches int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('dumps') WHERE name = 'branch_id'`).Scan(&hasBranches); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err := ensureColumn(db, "dumps", "branch_id", `ALTER TABLE dumps ADD COLUMN branch_id INTEGER NOT NULL DEFAULT 0`); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err := ensureColumn(db, "jobs", "branch_id", `ALTER TABLE jobs ADD COLUMN branch_id INTEGER NOT NULL DEFAULT 0`); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if hasBranches == 0 {
+		if err := backfillBranches(db); err != nil {
 			db.Close()
 			return nil, err
 		}

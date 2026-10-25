@@ -120,6 +120,11 @@ func (r *Runner) run(jobID int64) {
 		runErr = r.runDump(jctx, job, db, eng, lf)
 	case "restore":
 		runErr = r.runRestore(jctx, job, db, eng, lf)
+		if runErr == nil {
+			if err := r.st.AssignRestoreBranch(context.Background(), jobID); err != nil {
+				log.Printf("record branch of restore job %d: %v", jobID, err)
+			}
+		}
 	default:
 		runErr = fmt.Errorf("unknown job type %q", job.Type)
 	}

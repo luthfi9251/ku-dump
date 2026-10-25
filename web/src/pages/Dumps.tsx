@@ -1,14 +1,16 @@
-import { useState } from 'react'
+import { Suspense, lazy, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import { Archive, Cloud, Download, GitBranch, HardDrive, Play, Search, Server, Table2, Trash2 } from 'lucide-react'
 import { api } from '../lib/api'
 import { fmtSize } from '../lib/format'
 import type { DatabaseDTO, DumpDTO, Engine, StorageDestinationDTO } from '../lib/types'
-import { Badge, Button, Input, Select, StatCard } from '../ui'
+import { Badge, Button, Input, Select, Spinner, StatCard } from '../ui'
 import RestoreModal from '../modals/RestoreModal'
-import DumpGraph from '../DumpGraph'
 import JobDrawer from '../JobDrawer'
+
+// React Flow is only needed by the graph view; keep it out of the main bundle
+const DumpGraph = lazy(() => import('../graph/DumpGraph'))
 
 export default function Dumps() {
   const qc = useQueryClient()
@@ -136,6 +138,7 @@ export default function Dumps() {
             </Select>
           </div>
           {graphDb ? (
+            <Suspense fallback={<div className="flex justify-center rounded-2xl border border-slate-800 bg-slate-900/80 p-12"><Spinner /></div>}>
             <DumpGraph
               engine={graphDb.engine}
               databaseId={graphDb.id}
@@ -145,6 +148,7 @@ export default function Dumps() {
               onDelete={confirmDelete}
               onOpenJob={setJobDrawer}
             />
+            </Suspense>
           ) : (
             <div className="rounded-2xl border border-slate-800 bg-slate-900/80 px-6 py-12 text-center text-sm text-slate-500">
               {dbs.isLoading ? 'Loading databases…' : 'Register a database to see its dump graph.'}

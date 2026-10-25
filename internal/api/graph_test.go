@@ -59,6 +59,47 @@ func TestDumpGraph(t *testing.T) {
 		t.Fatalf("order = %s %s %s", g.Nodes[0].ID, g.Nodes[1].ID, g.Nodes[2].ID)
 	}
 
+	// branches: prod has one, the restore into dev starts dev's first branch
+	if len(g.Branches) != 2 {
+		t.Fatalf("branches = %+v", g.Branches)
+	}
+	if restore.Branch == "" || devDump.Branch != restore.Branch || byID["d-"+p1.ID].Branch == restore.Branch {
+		t.Fatalf("branch ids: prod %q restore %q dev dump %q", byID["d-"+p1.ID].Branch, restore.Branch, devDump.Branch)
+	}
+	for _, b := range g.Branches {
+		if !b.Active || b.Name == "" {
+			t.Fatalf("branch = %+v", b)
+		}
+	}
+
+	// preview: the tip of dev's branch continues it, a prod dump starts a new one
+	var pv restorePreviewDTO
+	rec = doJSON(t, h, "GET", "/api/restores/preview?dumpId="+a1.ID+"&targetDatabaseId="+dev.ID, nil, cookie)
+	json.NewDecoder(rec.Body).Decode(&pv)
+	if rec.Code != 200 || pv.Action != "continue" || pv.BranchID != restore.Branch {
+		t.Fatalf("preview tip = %d %+v", rec.Code, pv)
+	}
+	pv = restorePreviewDTO{}
+	rec = doJSON(t, h, "GET", "/api/restores/preview?dumpId="+p1.ID+"&targetDatabaseId="+dev.ID, nil, cookie)
+	json.NewDecoder(rec.Body).Decode(&pv)
+	if pv.Action != "new" {
+		t.Fatalf("preview foreign dump = %+v", pv)
+	}
+
+	// rename
+	rec = doJSON(t, h, "PUT", "/api/branches/"+restore.Branch, map[string]string{"name": "feature-x"}, cookie)
+	if rec.Code != 200 {
+		t.Fatalf("rename = %d: %s", rec.Code, rec.Body.String())
+	}
+	rec = doJSON(t, h, "PUT", "/api/branches/"+restore.Branch, map[string]string{"name": "  "}, cookie)
+	if rec.Code != 400 {
+		t.Fatalf("empty rename = %d", rec.Code)
+	}
+	rec = doJSON(t, h, "PUT", "/api/branches/"+encID(999), map[string]string{"name": "x"}, cookie)
+	if rec.Code != 404 {
+		t.Fatalf("unknown branch rename = %d", rec.Code)
+	}
+
 	rec = doJSON(t, h, "GET", "/api/dumps/graph?engine=mongodb", nil, cookie)
 	json.NewDecoder(rec.Body).Decode(&g)
 	if rec.Code != 200 || len(g.Nodes) != 0 || len(g.Lanes) != 0 {

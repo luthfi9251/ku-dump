@@ -51,6 +51,11 @@ func (f lineageFixture) restore(dumpID, dbID int64, status string) int64 {
 	if err != nil {
 		f.t.Fatal(err)
 	}
+	if status == "success" {
+		if err := f.st.AssignRestoreBranch(f.ctx, jobID); err != nil {
+			f.t.Fatal(err)
+		}
+	}
 	_ = f.st.SetJobFinished(f.ctx, jobID, status, "")
 	return jobID
 }
@@ -128,7 +133,8 @@ func TestLineageBackfill(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, q := range []string{`ALTER TABLE dumps DROP COLUMN parent_dump_id`, `ALTER TABLE dumps DROP COLUMN parent_job_id`} {
+	for _, q := range []string{`ALTER TABLE dumps DROP COLUMN parent_dump_id`, `ALTER TABLE dumps DROP COLUMN parent_job_id`,
+		`ALTER TABLE dumps DROP COLUMN branch_id`, `ALTER TABLE jobs DROP COLUMN branch_id`, `DROP TABLE branches`} {
 		if _, err := raw.Exec(q); err != nil {
 			t.Fatal(err)
 		}

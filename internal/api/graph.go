@@ -31,15 +31,27 @@ type graphNodeDTO struct {
 	Parent        string   `json:"parent,omitempty"`
 	Source        string   `json:"source,omitempty"`
 	SourceDeleted bool     `json:"sourceDeleted,omitempty"`
+	Branch        string   `json:"branch,omitempty"`
 	JobID         string   `json:"jobId,omitempty"`
 	FinishedAt    string   `json:"finishedAt,omitempty"`
 	Dump          *dumpDTO `json:"dump,omitempty"`
+
+	branchID int64 // recorded branch, 0 when unknown
+}
+
+type graphBranchDTO struct {
+	ID        string `json:"id"`
+	Lane      string `json:"lane"`
+	Name      string `json:"name"`
+	Active    bool   `json:"active"`
+	CreatedAt string `json:"createdAt"`
 }
 
 type graphDTO struct {
-	Engine string         `json:"engine"`
-	Lanes  []graphLaneDTO `json:"lanes"`
-	Nodes  []graphNodeDTO `json:"nodes"`
+	Engine   string           `json:"engine"`
+	Lanes    []graphLaneDTO   `json:"lanes"`
+	Nodes    []graphNodeDTO   `json:"nodes"`
+	Branches []graphBranchDTO `json:"branches"`
 }
 
 func dumpNodeID(id int64) string    { return "d-" + encID(id) }
@@ -77,8 +89,12 @@ func (s *Server) buildDumpGraph(ctx context.Context, engine string) (*graphDTO, 
 	if err != nil {
 		return nil, err
 	}
+	branches, err := s.Store.ListBranches(ctx)
+	if err != nil {
+		return nil, err
+	}
 
-	out := &graphDTO{Engine: engine, Lanes: []graphLaneDTO{}, Nodes: []graphNodeDTO{}}
+	out := &graphDTO{Engine: engine, Lanes: []graphLaneDTO{}, Nodes: []graphNodeDTO{}, Branches: []graphBranchDTO{}}
 	lanes := map[string]bool{}
 	for _, db := range dbs {
 		if db.Engine != engine {
@@ -125,6 +141,9 @@ func (s *Server) buildDumpGraph(ctx context.Context, engine string) (*graphDTO, 
 			ID: restoreNodeID(rs.JobID), Kind: "restore", Lane: laneFor(rs.DatabaseID, rs.DatabaseName),
 			At: rs.CreatedAt.Format(time.RFC3339), Status: rs.Status, JobID: encID(rs.JobID),
 		}
+		if rs.Status == "success" {
+			n.branchID = rs.BranchID
+		}
 		if rs.FinishedAt != nil {
 			n.FinishedAt = rs.FinishedAt.Format(time.RFC3339)
 		}
@@ -138,7 +157,7 @@ func (s *Server) buildDumpGraph(ctx context.Context, engine string) (*graphDTO, 
 	hasUploads := false
 	for _, d := range dumps {
 		dto := dumpToDTO(d)
-		n := graphNodeDTO{ID: dumpNodeID(d.ID), Kind: "dump", At: dto.CreatedAt, Status: d.Status, Dump: &dto}
+		n := graphNodeDTO{ID: dumpNodeID(d.ID), Kind: "dump", At: dto.CreatedAt, Status: d.Status, Dump: &dto, branchID: d.BranchID}
 		if d.DatabaseID == 0 {
 			n.Lane = "upload"
 			hasUploads = true
@@ -180,6 +199,40 @@ func (s *Server) buildDumpGraph(ctx context.Context, engine string) (*graphDTO, 
 	}
 	for _, e := range events {
 		emit(e.node)
+	}
+
+	// Replay each lane to find its active branch. Events without a recorded
+	// branch (failed or running restores, legacy rows) sit on the branch that
+	// was active when they happened.
+	active := map[string]int64{}
+	used := map[int64]bool{}
+	for i := range out.Nodes {
+		n := &out.Nodes[i]
+		if n.Lane == "upload" {
+			continue
+		}
+		b := n.branchID
+		if b != 0 {
+			active[n.Lane] = b
+		} else {
+			b = active[n.Lane]
+		}
+		if b != 0 {
+			n.Branch = encID(b)
+			used[b] = true
+		}
+	}
+	activeBranch := map[int64]bool{}
+	for _, b := range active {
+		activeBranch[b] = true
+	}
+	for _, b := range branches {
+		if used[b.ID] {
+			out.Branches = append(out.Branches, graphBranchDTO{
+				ID: encID(b.ID), Lane: laneID(b.DatabaseID), Name: b.Name,
+				Active: activeBranch[b.ID], CreatedAt: b.CreatedAt.Format(time.RFC3339),
+			})
+		}
 	}
 	return out, nil
 }
