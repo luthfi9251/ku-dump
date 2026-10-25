@@ -2,10 +2,10 @@ import { useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { AlertTriangle, CheckCircle2, History, HardDriveUpload, UploadCloud } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, GitBranch, History, HardDriveUpload, UploadCloud } from 'lucide-react'
 import { api, ApiError } from '../lib/api'
 import { fmtSize } from '../lib/format'
-import type { DatabaseDTO, DumpDTO, Engine, StorageDestinationDTO } from '../lib/types'
+import type { DatabaseDTO, DumpDTO, Engine, RestorePreviewDTO, StorageDestinationDTO } from '../lib/types'
 import { Badge, Button, Field, Modal, Select, Spinner } from '../ui'
 
 type Tab = 'history' | 'upload'
@@ -80,6 +80,12 @@ export default function RestoreModal({
   const effectiveDumpId = tab === 'history' ? dumpId : (uploadedDump?.id ?? '')
   const selectedTarget = targets.find((db) => db.id === targetId)
   const confirmOk = !!selectedTarget && confirmName === selectedTarget.name
+  const preview = useQuery({
+    queryKey: ['restore-preview', effectiveDumpId, targetId],
+    queryFn: () =>
+      api.get<RestorePreviewDTO>(`/api/restores/preview?dumpId=${effectiveDumpId}&targetDatabaseId=${targetId}`),
+    enabled: open && !!effectiveDumpId && !!selectedTarget,
+  })
 
   async function onUpload() {
     if (!file) return
@@ -238,6 +244,19 @@ export default function RestoreModal({
             </Select>
           )}
         </Field>
+
+        {selectedTarget && preview.data && (
+          <div className="flex items-start gap-2 rounded-xl border border-indigo-500/30 bg-indigo-950/30 p-3 text-xs text-indigo-200">
+            <GitBranch size={15} className="mt-0.5 shrink-0" />
+            <span>
+              {preview.data.action === 'continue' ? (
+                <>This is the newest dump of branch <b className="font-mono">{preview.data.branchName}</b>, so the restore continues that branch on {selectedTarget.name}.</>
+              ) : (
+                <>The restore starts a new branch on {selectedTarget.name}. Its current branch stays in the history and can be continued later by restoring its newest dump.</>
+              )}
+            </span>
+          </div>
+        )}
 
         {selectedTarget && (
           <div className="space-y-3 rounded-xl border border-amber-500/40 bg-amber-950/30 p-4 text-xs text-amber-200">

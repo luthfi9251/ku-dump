@@ -121,13 +121,29 @@ export interface GraphNodeDTO {
   parent?: string
   source?: string
   sourceDeleted?: boolean
+  branch?: string
   jobId?: string
   finishedAt?: string
   dump?: DumpDTO
+}
+
+export interface GraphBranchDTO {
+  id: string
+  lane: string
+  name: string
+  active: boolean
+  createdAt: string
+}
+
+export interface RestorePreviewDTO {
+  action: 'continue' | 'new'
+  branchId?: string
+  branchName?: string
 }
 
 export interface DumpGraphDTO {
   engine: Engine
   lanes: GraphLaneDTO[]
   nodes: GraphNodeDTO[]
+  branches: GraphBranchDTO[]
 }
