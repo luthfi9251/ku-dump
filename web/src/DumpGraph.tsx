@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { ArrowLeftRight, Download, GitBranch, Play, Terminal, Trash2 } from 'lucide-react'
 import { api } from './lib/api'
@@ -10,12 +10,15 @@ import { statusTone } from './JobDrawer'
 // Lineage graph of dumps: one lane per database, time flows to the right.
 // ● dump, ■ uploaded file, ◇ restore. A dump links to its parent state in the
 // same lane; a restore links from its source dump, possibly in another lane.
+// Only the focused database and the databases related to it are drawn: where
+// its data came from (upstream) and where its data went (downstream).
 
 const LANE_COLORS = ['#f59e0b', '#a78bfa', '#2dd4bf', '#60a5fa', '#f472b6', '#a3e635', '#fb923c', '#38bdf8']
 const MUTED = '#64748b'
 const COL = 56
 const LANE_H = 64
-const LEFT = 150
+const PAD = 40 // room left of the first node for incoming restore stubs
+const TAIL = COL // room right of the last node for the dashed lane tail
 const TOP = 40
 
 const isReady = (n: GraphNodeDTO) => n.kind === 'dump' && (n.status === 'ready' || n.status === 'uploaded')
@@ -29,8 +32,42 @@ function fmtTime(iso: string) {
   return new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 }
 
+// relatedLanes walks restore edges from the focused lane: upstream to the
+// lanes its data came from, downstream to the lanes its data went to. Siblings
+// (other targets of an upstream lane) are left out. Returns lane -> depth,
+// negative upstream, 0 for the focus, positive downstream.
+function relatedLanes(data: DumpGraphDTO, focus: string): Map<string, number> {
+  const byId = new Map(data.nodes.map((n) => [n.id, n]))
+  const edges: [string, string][] = []
+  for (const n of data.nodes) {
+    const src = n.kind === 'restore' && n.source ? byId.get(n.source) : undefined
+    if (src && src.lane !== n.lane) edges.push([src.lane, n.lane])
+  }
+  const depth = new Map<string, number>([[focus, 0]])
+  const walk = (dir: 1 | -1) => {
+    let frontier = [focus]
+    for (let d = dir; frontier.length > 0; d += dir) {
+      const next: string[] = []
+      for (const lane of frontier) {
+        for (const [from, to] of edges) {
+          const other = dir === -1 ? (to === lane ? from : null) : from === lane ? to : null
+          if (other && !depth.has(other)) {
+            depth.set(other, d)
+            next.push(other)
+          }
+        }
+      }
+      frontier = next
+    }
+  }
+  walk(-1)
+  walk(1)
+  return depth
+}
+
 export default function DumpGraph({
   engine,
+  databaseId,
   selectedId,
   onSelect,
   onRestore,
@@ -38,6 +75,7 @@ export default function DumpGraph({
   onOpenJob,
 }: {
   engine: Engine
+  databaseId: string
   selectedId: string | null
   onSelect: (id: string | null) => void
   onRestore: (dump: DumpDTO) => void
@@ -49,39 +87,56 @@ export default function DumpGraph({
     queryFn: () => api.get<DumpGraphDTO>(`/api/dumps/graph?engine=${engine}`),
     refetchInterval: 10000,
   })
+  const focus = `db-${databaseId}`
   const scroller = useRef<HTMLDivElement>(null)
-  const scrolledFor = useRef<string | null>(null)
+  const [viewWidth, setViewWidth] = useState(0)
+  // the graph opens at its right edge (newest) and stays pinned there while
+  // new events arrive, unless the user scrolled back in time
+  const pinnedRight = useRef(true)
 
   const layout = useMemo(() => {
     const data = graph.data
     if (!data) return null
-    const laneIndex = new Map<string, number>()
     const laneColor = new Map<string, string>()
-    data.lanes.forEach((l, i) => {
-      laneIndex.set(l.id, i)
-      laneColor.set(l.id, l.kind === 'database' ? LANE_COLORS[i % LANE_COLORS.length] : MUTED)
-    })
-    const byId = new Map<string, GraphNodeDTO>()
+    data.lanes.forEach((l, i) => laneColor.set(l.id, l.kind === 'database' ? LANE_COLORS[i % LANE_COLORS.length] : MUTED))
+    const depth = relatedLanes(data, focus)
+    const order = new Map(data.lanes.map((l, i) => [l.id, i]))
+    const lanes = data.lanes
+      .filter((l) => depth.has(l.id))
+      .sort((a, b) => depth.get(a.id)! - depth.get(b.id)! || order.get(a.id)! - order.get(b.id)!)
+    const laneIndex = new Map(lanes.map((l, i) => [l.id, i]))
+    const byId = new Map(data.nodes.map((n) => [n.id, n]))
+    const nodes = data.nodes.filter((n) => laneIndex.has(n.lane))
+    const contentWidth = PAD + nodes.length * COL + TAIL
+    const width = Math.max(contentWidth, viewWidth)
+    const offset = width - contentWidth // few events: keep them right-aligned too
     const pos = new Map<string, { x: number; y: number }>()
-    data.nodes.forEach((n, i) => {
-      byId.set(n.id, n)
-      pos.set(n.id, { x: LEFT + i * COL + COL / 2, y: TOP + (laneIndex.get(n.lane) ?? 0) * LANE_H + LANE_H / 2 })
+    nodes.forEach((n, i) => {
+      pos.set(n.id, { x: offset + PAD + i * COL + COL / 2, y: TOP + laneIndex.get(n.lane)! * LANE_H + LANE_H / 2 })
     })
     // current state of each lane, for the dashed tail
     const laneState = new Map<string, string>()
-    for (const n of data.nodes) if (isState(n)) laneState.set(n.lane, n.id)
-    const width = LEFT + Math.max(data.nodes.length, 8) * COL + COL
-    const height = TOP + data.lanes.length * LANE_H + 8
-    return { data, laneIndex, laneColor, byId, pos, laneState, width, height }
-  }, [graph.data])
+    for (const n of nodes) if (isState(n)) laneState.set(n.lane, n.id)
+    const height = TOP + lanes.length * LANE_H + 8
+    return { data, lanes, nodes, laneColor, byId, pos, laneState, width, height, offset }
+  }, [graph.data, focus, viewWidth])
 
-  // open on the newest events
-  useEffect(() => {
-    if (layout && scroller.current && scrolledFor.current !== engine) {
-      scroller.current.scrollLeft = scroller.current.scrollWidth
-      scrolledFor.current = engine
-    }
-  }, [layout, engine])
+  useLayoutEffect(() => {
+    const el = scroller.current
+    if (!el) return
+    const ro = new ResizeObserver(() => setViewWidth(el.clientWidth))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [layout !== null])
+
+  useLayoutEffect(() => {
+    pinnedRight.current = true
+  }, [focus])
+
+  useLayoutEffect(() => {
+    const el = scroller.current
+    if (el && pinnedRight.current) el.scrollLeft = el.scrollWidth
+  }, [layout])
 
   const chain = useMemo(() => {
     const out: GraphNodeDTO[] = []
@@ -106,27 +161,29 @@ export default function DumpGraph({
   if (!layout) {
     return <div className="rounded-2xl border border-rose-800/60 bg-rose-950/40 p-4 text-sm text-rose-300">Could not load the dump graph.</div>
   }
-  if (layout.data.nodes.length === 0) {
+
+  const { data, lanes, nodes, laneColor, byId, pos, laneState, width, height, offset } = layout
+  if (nodes.length === 0) {
     return (
       <div className="rounded-2xl border border-slate-800 bg-slate-900/80 px-6 py-12 text-center text-sm text-slate-500">
         <GitBranch size={32} className="mx-auto mb-2 opacity-40" />
-        No {engine === 'postgres' ? 'PostgreSQL' : 'MongoDB'} dumps or restores yet. Run a workflow to create the first point.
+        No dumps or restores for this database yet. Run a workflow to create the first point.
       </div>
     )
   }
 
-  const { data, laneColor, byId, pos, laneState, width, height } = layout
   const selected = selectedId ? byId.get(selectedId) : undefined
+  const visible = (id: string) => pos.has(id)
   const dim = (id: string) => (selected && !onChain.has(id) ? 0.35 : 1)
   const laneName = (id: string) => data.lanes.find((l) => l.id === id)?.name ?? '?'
 
   // day separators
   const days: { x: number; label: string }[] = []
   let lastDay = ''
-  data.nodes.forEach((n, i) => {
+  nodes.forEach((n, i) => {
     const d = new Date(n.at).toDateString()
     if (d !== lastDay) {
-      days.push({ x: LEFT + i * COL, label: fmtDay(n.at) })
+      days.push({ x: offset + PAD + i * COL, label: fmtDay(n.at) })
       lastDay = d
     }
   })
@@ -138,95 +195,131 @@ export default function DumpGraph({
   return (
     <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
       <div className="min-w-0 overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/80 shadow-2xl backdrop-blur-md">
-        <div ref={scroller} className="overflow-x-auto">
-          <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="block font-mono" role="img" aria-label="Dump lineage graph">
-            {days.map((d) => (
-              <g key={d.x}>
-                <line x1={d.x} y1={14} x2={d.x} y2={height} stroke="#1e293b" strokeDasharray="2 4" />
-                <text x={d.x + 6} y={24} fontSize={11} fill="#64748b">{d.label}</text>
-              </g>
-            ))}
-            {data.lanes.map((l: GraphLaneDTO, i) => {
-              const y = TOP + i * LANE_H + LANE_H / 2
-              return (
-                <g key={l.id}>
-                  <line x1={LEFT - 8} y1={y} x2={width} y2={y} stroke="#1e293b" />
-                  <text x={16} y={y + 4} fontSize={12} fontWeight={600} fill={laneColor.get(l.id)} fontStyle={l.kind === 'database' ? 'normal' : 'italic'}>
-                    {l.name.length > 18 ? l.name.slice(0, 17) + '…' : l.name}
-                    <title>{l.name}</title>
-                  </text>
-                </g>
-              )
-            })}
-            {/* lane segments: parent state -> dump */}
-            {data.nodes.map((n) => {
-              if (n.kind !== 'dump' || !n.parent) return null
-              const a = pos.get(n.parent)!
-              const b = pos.get(n.id)!
-              const on = onChain.has(n.id) && onChain.has(n.parent)
-              return <line key={'s' + n.id} x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={laneColor.get(n.lane)} strokeWidth={on ? 5 : 3} opacity={selected && !on ? 0.35 : 1} />
-            })}
-            {[...laneState.entries()].map(([lane, id]) => {
-              const p = pos.get(id)!
-              return <line key={'t' + lane} x1={p.x} y1={p.y} x2={p.x + COL * 0.7} y2={p.y} stroke={laneColor.get(lane)} strokeWidth={3} strokeDasharray="3 4" opacity={0.6} />
-            })}
-            {/* restore edges: source dump -> restore */}
-            {data.nodes.map((n) => {
-              if (n.kind !== 'restore' || !n.source) return null
-              const src = byId.get(n.source)!
-              const a = pos.get(src.id)!
-              const b = pos.get(n.id)!
-              const on = onChain.has(n.id) && onChain.has(src.id)
-              const color = n.status === 'success' ? laneColor.get(src.lane) : n.status === 'pending' || n.status === 'running' ? '#fbbf24' : '#fb7185'
-              const d =
-                a.y === b.y
-                  ? `M${a.x} ${a.y} C ${a.x} ${a.y - 28}, ${b.x - 10} ${b.y - 28}, ${b.x - 6} ${b.y - 8}`
-                  : `M${a.x} ${a.y} C ${a.x} ${(a.y + b.y) / 2}, ${b.x - COL * 0.6} ${b.y}, ${b.x - 10} ${b.y}`
-              return (
-                <path key={'r' + n.id} d={d} fill="none" stroke={color} strokeWidth={on ? 3.5 : 2}
-                  strokeDasharray={n.status === 'success' ? undefined : '4 3'} opacity={selected && !on ? 0.35 : 1} />
-              )
-            })}
-            {data.nodes.map((n) => {
-              const { x, y } = pos.get(n.id)!
-              const color = laneColor.get(n.lane)!
-              const isSel = n.id === selectedId
-              const title =
-                n.kind === 'dump'
-                  ? `${n.dump?.label ?? 'dump'} · ${fmtTime(n.at)} · ${n.status}`
-                  : `restore ${n.source ? byId.get(n.source)?.dump?.label : '(source deleted)'} → ${laneName(n.lane)} · ${n.status}`
-              const restoreStroke = n.status === 'success' ? color : n.status === 'pending' || n.status === 'running' ? '#fbbf24' : '#fb7185'
-              return (
-                <g
-                  key={n.id}
-                  className="cursor-pointer focus:outline-none [&:focus-visible>.ring]:stroke-indigo-300"
-                  tabIndex={0}
-                  role="button"
-                  aria-label={title}
-                  aria-pressed={isSel}
-                  opacity={dim(n.id)}
-                  onClick={() => select(n.id)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault()
-                      select(n.id)
-                    }
-                  }}
+        <div className="flex">
+          {/* lane names stay in place while the timeline scrolls */}
+          <div className="relative w-32 shrink-0 border-r border-slate-800 bg-slate-950/40" style={{ height }}>
+            {lanes.map((l: GraphLaneDTO, i) => (
+              <div
+                key={l.id}
+                className="absolute inset-x-0 flex -translate-y-1/2 items-center gap-1.5 px-3 font-mono text-xs"
+                style={{ top: TOP + i * LANE_H + LANE_H / 2 }}
+                title={l.name}
+              >
+                <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: laneColor.get(l.id) }} />
+                <span
+                  className={`truncate ${l.id === focus ? 'font-bold text-slate-100' : 'font-semibold'} ${l.kind === 'database' ? '' : 'italic'}`}
+                  style={l.id === focus ? undefined : { color: laneColor.get(l.id) }}
                 >
-                  <title>{title}</title>
-                  <circle className="ring" cx={x} cy={y} r={15} fill="transparent" stroke={isSel ? '#818cf8' : 'transparent'} strokeWidth={2} />
-                  {n.kind === 'dump' && n.lane === 'upload' ? (
-                    <rect x={x - 8} y={y - 8} width={16} height={16} rx={3} fill={color} />
-                  ) : n.kind === 'dump' ? (
-                    <circle cx={x} cy={y} r={8.5} fill={color} className={n.status === 'pending' ? 'animate-pulse' : undefined} />
-                  ) : (
-                    <path d={`M${x} ${y - 9} L${x + 9} ${y} L${x} ${y + 9} L${x - 9} ${y} Z`} fill="#0f172a" stroke={restoreStroke} strokeWidth={2.5}
-                      strokeDasharray={n.status === 'success' ? undefined : '3 2'} />
-                  )}
+                  {l.name}
+                </span>
+              </div>
+            ))}
+          </div>
+          <div
+            ref={scroller}
+            className="min-w-0 flex-1 overflow-x-auto"
+            onScroll={(e) => {
+              const el = e.currentTarget
+              pinnedRight.current = el.scrollLeft + el.clientWidth >= el.scrollWidth - 4
+            }}
+          >
+            <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="block font-mono" role="img" aria-label="Dump lineage graph">
+              {lanes.map((l, i) => {
+                const y = TOP + i * LANE_H + LANE_H / 2
+                return (
+                  <g key={l.id}>
+                    {l.id === focus && <rect x={0} y={y - LANE_H / 2} width={width} height={LANE_H} fill="#6366f1" opacity={0.06} />}
+                    <line x1={0} y1={y} x2={width} y2={y} stroke="#1e293b" />
+                  </g>
+                )
+              })}
+              {days.map((d) => (
+                <g key={d.x}>
+                  <line x1={d.x} y1={14} x2={d.x} y2={height} stroke="#1e293b" strokeDasharray="2 4" />
+                  <text x={d.x + 6} y={24} fontSize={11} fill="#64748b">{d.label}</text>
                 </g>
-              )
-            })}
-          </svg>
+              ))}
+              {/* lane segments: parent state -> dump */}
+              {nodes.map((n) => {
+                if (n.kind !== 'dump' || !n.parent || !visible(n.parent)) return null
+                const a = pos.get(n.parent)!
+                const b = pos.get(n.id)!
+                const on = onChain.has(n.id) && onChain.has(n.parent)
+                return <line key={'s' + n.id} x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={laneColor.get(n.lane)} strokeWidth={on ? 5 : 3} opacity={selected && !on ? 0.35 : 1} />
+              })}
+              {[...laneState.entries()].map(([lane, id]) => {
+                const p = pos.get(id)!
+                return <line key={'t' + lane} x1={p.x} y1={p.y} x2={p.x + COL * 0.7} y2={p.y} stroke={laneColor.get(lane)} strokeWidth={3} strokeDasharray="3 4" opacity={0.6} />
+              })}
+              {/* restore edges: source dump -> restore; a stub when the source is not drawn */}
+              {nodes.map((n) => {
+                if (n.kind !== 'restore') return null
+                const b = pos.get(n.id)!
+                const src = n.source ? byId.get(n.source) : undefined
+                const statusColor = n.status === 'pending' || n.status === 'running' ? '#fbbf24' : '#fb7185'
+                if (!src || !visible(src.id)) {
+                  return (
+                    <g key={'r' + n.id} opacity={dim(n.id)}>
+                      <line x1={b.x - COL * 0.75} y1={b.y} x2={b.x - 10} y2={b.y} stroke={src ? laneColor.get(src.lane) : MUTED} strokeWidth={2} strokeDasharray="2 3" />
+                      <text x={b.x - 12} y={b.y - 8} fontSize={9.5} textAnchor="end" fill="#94a3b8">
+                        {src ? `from ${laneName(src.lane)}` : 'source deleted'}
+                      </text>
+                    </g>
+                  )
+                }
+                const a = pos.get(src.id)!
+                const on = onChain.has(n.id) && onChain.has(src.id)
+                const color = n.status === 'success' ? laneColor.get(src.lane) : statusColor
+                const d =
+                  a.y === b.y
+                    ? `M${a.x} ${a.y} C ${a.x} ${a.y - 28}, ${b.x - 10} ${b.y - 28}, ${b.x - 6} ${b.y - 8}`
+                    : `M${a.x} ${a.y} C ${a.x} ${(a.y + b.y) / 2}, ${b.x - COL * 0.6} ${b.y}, ${b.x - 10} ${b.y}`
+                return (
+                  <path key={'r' + n.id} d={d} fill="none" stroke={color} strokeWidth={on ? 3.5 : 2}
+                    strokeDasharray={n.status === 'success' ? undefined : '4 3'} opacity={selected && !on ? 0.35 : 1} />
+                )
+              })}
+              {nodes.map((n) => {
+                const { x, y } = pos.get(n.id)!
+                const color = laneColor.get(n.lane)!
+                const isSel = n.id === selectedId
+                const title =
+                  n.kind === 'dump'
+                    ? `${n.dump?.label ?? 'dump'} · ${fmtTime(n.at)} · ${n.status}`
+                    : `restore ${n.source ? byId.get(n.source)?.dump?.label : '(source deleted)'} → ${laneName(n.lane)} · ${n.status}`
+                const restoreStroke = n.status === 'success' ? color : n.status === 'pending' || n.status === 'running' ? '#fbbf24' : '#fb7185'
+                return (
+                  <g
+                    key={n.id}
+                    className="cursor-pointer focus:outline-none [&:focus-visible>.ring]:stroke-indigo-300"
+                    tabIndex={0}
+                    role="button"
+                    aria-label={title}
+                    aria-pressed={isSel}
+                    opacity={dim(n.id)}
+                    onClick={() => select(n.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        select(n.id)
+                      }
+                    }}
+                  >
+                    <title>{title}</title>
+                    <circle className="ring" cx={x} cy={y} r={15} fill="transparent" stroke={isSel ? '#818cf8' : 'transparent'} strokeWidth={2} />
+                    {n.kind === 'dump' && n.lane === 'upload' ? (
+                      <rect x={x - 8} y={y - 8} width={16} height={16} rx={3} fill={color} />
+                    ) : n.kind === 'dump' ? (
+                      <circle cx={x} cy={y} r={8.5} fill={color} className={n.status === 'pending' ? 'animate-pulse' : undefined} />
+                    ) : (
+                      <path d={`M${x} ${y - 9} L${x + 9} ${y} L${x} ${y + 9} L${x - 9} ${y} Z`} fill="#0f172a" stroke={restoreStroke} strokeWidth={2.5}
+                        strokeDasharray={n.status === 'success' ? undefined : '3 2'} />
+                    )}
+                  </g>
+                )
+              })}
+            </svg>
+          </div>
         </div>
         <div className="flex flex-wrap gap-x-5 gap-y-1.5 border-t border-slate-800 px-4 py-2.5 text-[11px] text-slate-400">
           <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-slate-400" />dump</span>
@@ -238,9 +331,10 @@ export default function DumpGraph({
       </div>
 
       <NodePanel
-        node={selected}
+        node={selected && visible(selected.id) ? selected : undefined}
         chain={chain}
         byId={byId}
+        visible={visible}
         laneName={laneName}
         laneColor={(id) => laneColor.get(id) ?? MUTED}
         onSelect={onSelect}
@@ -256,6 +350,7 @@ function NodePanel({
   node,
   chain,
   byId,
+  visible,
   laneName,
   laneColor,
   onSelect,
@@ -266,6 +361,7 @@ function NodePanel({
   node: GraphNodeDTO | undefined
   chain: GraphNodeDTO[]
   byId: Map<string, GraphNodeDTO>
+  visible: (id: string) => boolean
   laneName: (id: string) => string
   laneColor: (id: string) => string
   onSelect: (id: string | null) => void
@@ -297,7 +393,9 @@ function NodePanel({
             <button
               type="button"
               onClick={() => onSelect(c.id)}
-              className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 ${c.id === node.id ? 'border-indigo-500/60 bg-indigo-950/60 text-indigo-200' : 'border-slate-700 bg-slate-800/60 text-slate-300 hover:border-slate-500'}`}
+              disabled={!visible(c.id)}
+              title={visible(c.id) ? undefined : `${laneName(c.lane)} is not related to the selected database`}
+              className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 disabled:cursor-default disabled:opacity-60 ${c.id === node.id ? 'border-indigo-500/60 bg-indigo-950/60 text-indigo-200' : 'border-slate-700 bg-slate-800/60 text-slate-300 enabled:hover:border-slate-500'}`}
             >
               <span className="h-2 w-2 rounded-full" style={{ background: laneColor(c.lane) }} />
               {c.kind === 'dump' ? c.dump?.label : `restore → ${laneName(c.lane)}`}
@@ -341,7 +439,7 @@ function NodePanel({
               <Terminal size={14} /> View log
             </Button>
           )}
-          {src && (
+          {src && visible(src.id) && (
             <Button size="sm" variant="outline" onClick={() => onSelect(src.id)}>
               <ArrowLeftRight size={14} /> Go to source dump
             </Button>

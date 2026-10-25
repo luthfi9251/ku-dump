@@ -54,12 +54,14 @@ Dump, and watch the job log live.
 - **Dumps** — history with download/delete, grouped by storage destination.
   Upload a file dump (`pg_dump -Fc` or gzipped mongo archive) to restore it.
 - **Dumps → Graph** — the same history as a lineage graph, one lane per
-  database (per engine). Lines show where each dump's data came from: the
+  database. Pick a database to see it together with the databases its data
+  came from (above) and went to (below); unrelated databases are hidden. The
+  timeline opens at its newest (right) end. Lines show where each dump's data came from: the
   previous dump of the same database, or the dump that was last restored
   into it, including restores across databases (prod → dev) and resets to an
   older point. Click a dump to see its origin chain and restore it to any
   database of the same engine; click a restore to open its job log. The
-  selected point is kept in the URL (`/dumps?view=graph&node=…`) for sharing.
+  selected point is kept in the URL (`/dumps?view=graph&db=…&node=…`) for sharing.
 - **Jobs** — live log tail, cancel while running.
 - **Destinations** — reusable storage targets on their own page: local
   folders (any absolute path), S3-compatible buckets, or remote servers

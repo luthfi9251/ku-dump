@@ -18,23 +18,29 @@ export default function Dumps() {
   const [storageFilter, setStorageFilter] = useState('')
   const [restoreSource, setRestoreSource] = useState<DumpDTO | null>(null)
   const [jobDrawer, setJobDrawer] = useState<string | null>(null)
-  // view, graph engine and selected point live in the URL so a point can be shared
+  // view, graph database and selected point live in the URL so a point can be shared
   const [params, setParams] = useSearchParams()
   const view = params.get('view') === 'graph' ? 'graph' : 'table'
-  const graphEngine: Engine = params.get('engine') === 'mongodb' ? 'mongodb' : 'postgres'
   const selectedNode = params.get('node')
 
   function setParam(key: string, value: string | null) {
     const next = new URLSearchParams(params)
     if (value) next.set(key, value)
     else next.delete(key)
-    if (key === 'view' || key === 'engine') next.delete('node')
+    if (key === 'view' || key === 'db') next.delete('node')
     setParams(next, { replace: true })
   }
 
   const dumps = useQuery({ queryKey: ['dumps'], queryFn: () => api.get<DumpDTO[]>('/api/dumps'), refetchInterval: 10000 })
   const dbs = useQuery({ queryKey: ['databases'], queryFn: () => api.get<DatabaseDTO[]>('/api/databases') })
   const dests = useQuery({ queryKey: ['storage-destinations'], queryFn: () => api.get<StorageDestinationDTO[]>('/api/storage/destinations') })
+
+  // graph focus: the database from the URL, else the one with the newest dump
+  const allDbs = dbs.data ?? []
+  const graphDb =
+    allDbs.find((db) => db.id === params.get('db')) ??
+    allDbs.find((db) => db.id === (dumps.data ?? []).find((d) => allDbs.some((x) => x.id === d.databaseId))?.databaseId) ??
+    allDbs[0]
 
   const remove = useMutation({
     mutationFn: (id: string) => api.del(`/api/dumps/${id}`),
@@ -105,21 +111,45 @@ export default function Dumps() {
         <div className="space-y-3">
           <div className="flex flex-col gap-2 rounded-xl border border-slate-800 bg-slate-900/60 p-3 backdrop-blur-md sm:flex-row sm:items-center sm:justify-between">
             <p className="text-xs text-slate-400">
-              Each lane is a database. Lines show where each dump's data came from, across restores between databases.
+              Shows the selected database with the databases its data came from (above) and went to (below), linked by restores.
             </p>
-            <Select value={graphEngine} onChange={(e) => setParam('engine', e.target.value === 'mongodb' ? 'mongodb' : null)} className="w-40 bg-slate-950/80">
-              <option value="postgres">PostgreSQL</option>
-              <option value="mongodb">MongoDB</option>
+            <Select
+              value={graphDb?.id ?? ''}
+              onChange={(e) => setParam('db', e.target.value)}
+              className="w-56 bg-slate-950/80"
+              aria-label="Database"
+              disabled={allDbs.length === 0}
+            >
+              {(['postgres', 'mongodb'] as Engine[]).map((eng) => {
+                const list = allDbs.filter((db) => db.engine === eng)
+                if (list.length === 0) return null
+                return (
+                  <optgroup key={eng} label={eng === 'postgres' ? 'PostgreSQL' : 'MongoDB'}>
+                    {list.map((db) => (
+                      <option key={db.id} value={db.id}>
+                        {db.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                )
+              })}
             </Select>
           </div>
-          <DumpGraph
-            engine={graphEngine}
-            selectedId={selectedNode}
-            onSelect={(id) => setParam('node', id)}
-            onRestore={setRestoreSource}
-            onDelete={confirmDelete}
-            onOpenJob={setJobDrawer}
-          />
+          {graphDb ? (
+            <DumpGraph
+              engine={graphDb.engine}
+              databaseId={graphDb.id}
+              selectedId={selectedNode}
+              onSelect={(id) => setParam('node', id)}
+              onRestore={setRestoreSource}
+              onDelete={confirmDelete}
+              onOpenJob={setJobDrawer}
+            />
+          ) : (
+            <div className="rounded-2xl border border-slate-800 bg-slate-900/80 px-6 py-12 text-center text-sm text-slate-500">
+              {dbs.isLoading ? 'Loading databases…' : 'Register a database to see its dump graph.'}
+            </div>
+          )}
         </div>
       )}
 
